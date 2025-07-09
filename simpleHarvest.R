@@ -9,10 +9,14 @@ defineModule(sim, list(
                       "It will create a raster of harvested patches, but will not simulate actual harvest.",
                       "Should be paired with LandR_reforestation"),
   keywords = c("harvest", "LandR", "rstCurrentHarvest"),
-  authors = c(person(c("Ian"), "Eddy", email = "ian.eddy@canada.ca", role = c("aut", "cre"))),
+  authors = c(
+     person(c("Ian"), "Eddy", email = "ian.eddy@canada.ca", role = c("aut", "cre")),
+     person("Parvin", "Kalantari", email = "parvin.kalantari@nrcan-rncan.gc.ca", role = "ctb")
+     ),
   childModules = character(0),
   version = list(SpaDES.core = "0.2.5.9008", simpleHarvest = "0.0.1"),
-  spatialExtent = raster::extent(rep(NA_real_, 4)),
+  #spatialExtent = raster::extent(rep(NA_real_, 4)),
+  spatialExtent = terra::ext(rep(NA_real_, 4)),
   timeframe = as.POSIXlt(c(NA, NA)),
   timeunit = "year",
   citation = list("citation.bib"),
@@ -118,8 +122,9 @@ doEvent.simpleHarvest = function(sim, eventTime, eventType) {
 Init <- function(sim) {
 
   #initial harvest raster is 0 everywhere
-  sim$cumulativeHarvestMap <- setValues(sim$rasterToMatch, 0)
-  sim$harvestSummary = data.table(year = integer(0), pixelIndex = integer(0))
+  #sim$cumulativeHarvestMap <- setValues(sim$rasterToMatch, 0)
+  sim$cumulativeHarvestMap <- terra::values(sim$rasterToMatch, 0)
+  sim$harvestSummary = terra::data.table(year = integer(0), pixelIndex = integer(0))
   return(invisible(sim))
 }
 
@@ -148,8 +153,14 @@ harvestSpreadInputs <- function(pixelGroupMap,
                                 minAgesToHarvest,
                                 target) {
 
-  thlb[is.na(getValues(pixelGroupMap))] <- NA #pixels not in pixelGroupMap cannot be harvested
-
+  #thlb[is.na(getValues(pixelGroupMap))] <- NA #pixels not in pixelGroupMap cannot be harvested
+  # use terra function in stead of raster function getValues ()
+  # vals <- values(thlb)
+  # vals[is.na(values(pixelGroupMap))] <- NA
+  # values(thlb) <- vals
+  
+  thlb <- terra::mask(thlb, pixelGroupMap) # Keeps values in thlb where pixelGroupMap is not NA
+  
   #Make an ageMap
   cohortData <- copy(cohortData)
   standAges <- cohortData[, .(BweightedAge = sum(B * age)/sum(B)), .(pixelGroup)]
@@ -163,7 +174,8 @@ harvestSpreadInputs <- function(pixelGroupMap,
   landStats <- standAges[pixID, on = c("pixelGroup")]
   landStats <- landStats[BweightedAge >= minAgesToHarvest,]
   #I assume this method is faster than matching the pixelGroup raster values with a vector
-  harvestableAreas <- raster(thlb)
+  #harvestableAreas <- raster(thlb)
+  harvestableAreas <- terra::rast(thlb)
   harvestableAreas[landStats$pixelIndex] <- spreadProb
 
   #calculate harvest target
@@ -179,7 +191,8 @@ harvestSpreadInputs <- function(pixelGroupMap,
                        spreadProb = harvestableAreas,
                        maxSize = maxCutSize)
 
-  rstCurrentHarvest <- raster(pixelGroupMap)
+  #rstCurrentHarvest <- raster(pixelGroupMap)
+  rstCurrentHarvest <- terra::rast(pixelGroupMap)
   #set harvestable areas as 0
   rstCurrentHarvest[!is.na(pixelGroupMap[])] <- 0
 
