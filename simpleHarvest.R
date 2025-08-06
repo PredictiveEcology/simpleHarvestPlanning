@@ -16,12 +16,11 @@ defineModule(sim, list(
   childModules = character(0),
   version = list(SpaDES.core = "0.2.5.9008", simpleHarvest = "0.0.1"),
   #spatialExtent = raster::extent(rep(NA_real_, 4)),
-  spatialExtent = terra::ext(rep(NA_real_, 4)),
   timeframe = as.POSIXlt(c(NA, NA)),
   timeunit = "year",
   citation = list("citation.bib"),
   documentation = list("README.txt", "simpleHarvest.Rmd"),
-  reqdPkgs = list("PredictiveEcology/LandR", "sp", "raster", 'sf', 'magrittr', 'fasterize'),
+  reqdPkgs = list("PredictiveEcology/LandR@development (>= 1.1.5.9048)", 'sf', 'magrittr', 'fasterize', "terra"),
   parameters = rbind(
     #defineParameter("paramName", "paramClass", value, min, max, "parameter description"),
     defineParameter(".plotInitialTime", "numeric", NA, NA, NA, "This describes the simulation time at which the first plot event should occur"),
@@ -39,32 +38,33 @@ defineModule(sim, list(
                     desc = paste("spread prob when determing harvest patch size. Larger spreadProb yields cuts closer to max.",
                                  "Exceeding 0.24 will likely result in harvest patches that are maximum size"))
   ),
+   
+ # Modified for terra: 
   inputObjects = bind_rows(
-    expectsInput('cohortData', objectClass = 'data.table', desc = "table with pixelGroup, age, species, and biomass of cohorts"),
-    expectsInput(objectName = 'demRaster', objectClass = 'RasterLayer', desc = 'a DEM used to exclude areas from harvest.'),
-    expectsInput("pixelGroupMap", objectClass = "RasterLayer", desc = "Raster giving locations of pixelGroups"),
-    expectsInput('rasterToMatch', objectClass = 'RasterLayer',
-                 desc = 'a template raster for all raster operations. Cannot have lat/long projection'),
-    expectsInput("studyArea", objectClass = "SpatialPolygonsDataFrame", desc = "study area used to crop spatial inputs, if applicable",
+    expectsInput(objectName = "cohortData", objectClass = "data.table", desc = "table with pixelGroup, age, species, and biomass of cohorts"),
+    expectsInput(objectName = "pixelGroupMap", objectClass = "SpatRaster", desc = "Raster giving locations of pixelGroups"),   # objectClass = 'RasterLayer' to objectClass ="SpatRaster"
+    expectsInput(objectName = "rasterToMatch", objectClass = "SpatRaster", desc = "Template raster"),                          # objectClass = 'RasterLayer' to objectClass ="SpatRaster"
+    expectsInput(objectName = "studyArea", objectClass = "SpatVector", desc = "Study area polygon",                            # objectClass = "SpatialPolygonsDataFrame" to objectClass = "SpatVector"
                  sourceURL = "https://drive.google.com/open?id=1TlBfGfes_6UQW4M3jib8zgY5sGd_yjmY"),
-    expectsInput("thlb", objectClass = "RasterLayer",
-                 desc = paste("binary raster with 1 denoting harvestable pixels. Must match spatial attributes of rasterToMatch.",
-                              "Pixels that are NA in pixelGroupMap but non-NA in thlb will be coerced to NA."))
+    expectsInput(objectName = "thlb", objectClass = "SpatRaster", desc = "Harvestable pixels mask")                            # objectClass = 'RasterLayer' to objectClass ="SpatRaster"
   ),
-  outputObjects = bind_rows(
-    createsOutput(objectName = 'rstCurrentHarvest', objectClass = 'RasterLayer',
-                  desc = 'Binary raster representing annual harvested areas'),
-    createsOutput(objectName = "cumulativeHarvestMap", objectClass = "RasterLayer",
-                  desc = "cumulative harvest in raster form"),
-    createsOutput(objectName = "harvestSummary", objectClass = "data.table",
-                  desc = "data.table with year and pixel index of harvested pixels")
-  )
-))
 
+# Modified for terra: objectClass = 'RasterLayer' to objectClass ="SpatRaster"
+outputObjects = bind_rows(
+  createsOutput(objectName = "rstCurrentHarvest", objectClass = "SpatRaster",
+                desc = paste("Binary raster representing with 1 represetnting harvested pixels and 0 non-harvested forest.",
+                             "NA values represent non-forest")),
+  createsOutput(objectName = "cumulativeHarvestMap", objectClass = "SpatRaster",
+                desc = "cumulative harvest in raster form"),
+  createsOutput(objectName = "harvestSummary", objectClass = "data.table",
+                desc = "data.table with year and pixel index of harvested pixels"), 
+  createsOutput(objectName = "thlb", objectClass = "SpatRaster", desc = "Harvestable pixels mask")
+)
+))
 
 doEvent.simpleHarvest = function(sim, eventTime, eventType) {
   switch(
-    eventType,
+   eventType,
     init = {
       ### check for more detailed object dependencies:
       ### (use `checkObject` or similar)
@@ -75,7 +75,6 @@ doEvent.simpleHarvest = function(sim, eventTime, eventType) {
       # schedule future event(s)
       sim <- scheduleEvent(sim, time(sim), "simpleHarvest", "harvest")
       sim <- scheduleEvent(sim, P(sim)$.plotInitialTime, "simpleHarvest", "plot")
-      sim <- scheduleEvent(sim, P(sim)$.saveInitialTime, "simpleHarvest", "save")
 
     },
     plot = {
@@ -83,32 +82,42 @@ doEvent.simpleHarvest = function(sim, eventTime, eventType) {
       sim <- scheduleEvent(sim, time(sim) + P(sim)$.plotInterval, "simpleHarvest", "plot")
 
     },
-    save = {
-
-      sim <- scheduleEvent(sim, time(sim) + P(sim)$.saveInterval, "simpleHarvest", "save")
-
-    },
-    harvest = {
-
-      sim$rstCurrentHarvest <- harvestSpreadInputs(pixelGroupMap = sim$pixelGroupMap,
-                                                   cohortData = sim$cohortData,
-                                                   thlb = sim$thlb,
-                                                   spreadProb = P(sim)$spreadProb,
-                                                   maxCutSize = P(sim)$maxPatchSizetoHarvest,
-                                                   target = P(sim)$harvestTarget,
-                                                   minAgesToHarvest = P(sim)$minAgesToHarvest)
-      sim$cumulativeHarvestMap <- sim$rstCurrentHarvest + sim$cumulativeHarvestMap
-      harvestIndex <- data.table(year = time(sim), pixelIndex = 1:ncell(sim$rstCurrentHarvest),
-                                 harvestStat = getValues(sim$rstCurrentHarvest))
-      harvestIndex <- harvestIndex[harvestStat == 1,]
-      harvestIndex[, harvestStat := NULL]
-
-      sim$harvestSummary <- rbind(sim$harvestSummary, harvestIndex)
-      sim$rstCurrentHarvest@data@attributes$Year <- time(sim)
-
-      sim <- scheduleEvent(sim, time(sim) + 1,  "simpleHarvest", "harvest")
-
-    },
+   harvest = {
+    browser()
+     # Generate the current harvest raster (SpatRaster)
+     sim$rstCurrentHarvest <- harvestSpreadInputs(
+       pixelGroupMap = sim$pixelGroupMap,
+       cohortData = sim$cohortData,
+       thlb = sim$thlb,
+       spreadProb = P(sim)$spreadProb,
+       maxCutSize = P(sim)$maxPatchSizetoHarvest,
+       target = P(sim)$harvestTarget,
+       minAgesToHarvest = P(sim)$minAgesToHarvest
+     )
+     # Update cumulative harvest map
+     sim$cumulativeHarvestMap <- sim$rstCurrentHarvest + sim$cumulativeHarvestMap
+     # Convert raster values to a vector
+     harvestVals <- terra::values(sim$rstCurrentHarvest, mat = FALSE)
+     harvestVals <- as.numeric(harvestVals)  # Optional: only if needed
+     harvestVals[is.na(harvestVals)] <- 0  # Replace NAs if necessary
+     
+     # Create a table of pixel indices harvested this year
+     harvestIndex <- data.table(
+       year = time(sim),
+       pixelIndex = which(harvestVals == 1)  # Only keep harvested pixels
+     )
+     # Initialize harvestSummary if it doesn't exist
+     if (is.null(sim$harvestSummary)) {
+       sim$harvestSummary <- harvestIndex
+     } else {
+       sim$harvestSummary <- rbind(sim$harvestSummary, harvestIndex, fill = TRUE)
+     }
+     
+     
+     # Append to cumulative harvest summary
+     sim <- scheduleEvent(sim, time(sim) + 1,  "simpleHarvest", "harvest")
+     
+   },
     warning(paste("Undefined event type: '", current(sim)[1, "eventType", with = FALSE],
                   "' in module '", current(sim)[1, "moduleName", with = FALSE], "'", sep = ""))
   )
@@ -121,21 +130,16 @@ doEvent.simpleHarvest = function(sim, eventTime, eventType) {
 ### template initialization
 Init <- function(sim) {
 
+  
   #initial harvest raster is 0 everywhere
-  #sim$cumulativeHarvestMap <- setValues(sim$rasterToMatch, 0)
-  sim$cumulativeHarvestMap <- terra::values(sim$rasterToMatch, 0)
-  sim$harvestSummary = terra::data.table(year = integer(0), pixelIndex = integer(0))
+  sim$cumulativeHarvestMap <- sim$rasterToMatch
+  names(sim$cumulativeHarvestMap) <- NULL
+  
+  sim$cumulativeHarvestMap[] <- 0
+  sim$harvestSummary = data.table(year = integer(0), pixelIndex = integer(0))
   return(invisible(sim))
 }
 
-
-### template for save events
-Save <- function(sim) {
-
-  sim <- saveFiles(sim)
-
-  return(invisible(sim))
-}
 
 ### template for plot events
 plotFun <- function(sim) {
@@ -153,27 +157,39 @@ harvestSpreadInputs <- function(pixelGroupMap,
                                 minAgesToHarvest,
                                 target) {
 
-  #thlb[is.na(getValues(pixelGroupMap))] <- NA #pixels not in pixelGroupMap cannot be harvested
-  # use terra function in stead of raster function getValues ()
-  # vals <- values(thlb)
-  # vals[is.na(values(pixelGroupMap))] <- NA
-  # values(thlb) <- vals
-  
   thlb <- terra::mask(thlb, pixelGroupMap) # Keeps values in thlb where pixelGroupMap is not NA
   
   #Make an ageMap
+  # Make a biomass-weighted age map
   cohortData <- copy(cohortData)
-  standAges <- cohortData[, .(BweightedAge = sum(B * age)/sum(B)), .(pixelGroup)]
-
-  pixID <- data.table('pixelGroup' = getValues(pixelGroupMap),
-                      "pixelIndex" = 1:ncell(pixelGroupMap),
-                      "thlb" = getValues(thlb))
-  pixID <- na.omit(pixID) #drop non-forested pixels, even if they're in thlb
-  pixID <- pixID[thlb == 1,] #drop pixels that aren't in thlb
-
-  landStats <- standAges[pixID, on = c("pixelGroup")]
-  landStats <- landStats[BweightedAge >= minAgesToHarvest,]
+  # Compute biomass-weighted average age per pixelGroup
+  standAges <- cohortData[, .(BweightedAge = sum(B * age) / sum(B)), by = pixelGroup]
+  #standAges <- cohortData[, .(BweightedAge = sum(B * age)/sum(B)), .(pixelGroup)]
+  
+  # Extract raster values from pixelGroupMap and thlb
+  pgVals <- terra::values(pixelGroupMap)[, 1]  # ensure it's a vector
+  thlbVals <- terra::values(thlb)[, 1]
+  
+  # Combine values into a data.table and clean
+  pixID <- data.table(
+    pixelGroup = pgVals,
+    pixelIndex = seq_len(ncell(pixelGroupMap)),
+    thlb = thlbVals
+  )
+  
+  # Remove NA rows and keep only thlb == 1 (productive forest)
+  pixID <- na.omit(pixID)
+  pixID <- pixID[thlb == 1]
+  
+  # Join biomass-weighted age info using pixelGroup
+  landStats <- standAges[pixID, on = "pixelGroup"]
+  
+  # Keep only pixels with age above minimum threshold
+  landStats <- landStats[BweightedAge >= minAgesToHarvest]
+  #landStats <- landStats[BweightedAge >= minAgesToHarvest,]
+  
   #I assume this method is faster than matching the pixelGroup raster values with a vector
+  
   #harvestableAreas <- raster(thlb)
   harvestableAreas <- terra::rast(thlb)
   harvestableAreas[landStats$pixelIndex] <- spreadProb
@@ -184,7 +200,7 @@ harvestSpreadInputs <- function(pixelGroupMap,
 
   #calculate initial cuts by assuming every cut reaches the max
   initialCuts <- sample(landStats$pixelIndex, size = minCuts, replace = FALSE)
-
+  browser()
   iteration <- spread2(landscape = harvestableAreas,
                        start = initialCuts,
                        asRaster = FALSE,
@@ -224,11 +240,89 @@ harvestSpreadInputs <- function(pixelGroupMap,
 
   return(rstCurrentHarvest)
 }
+# 
+# .inputObjects <- function(sim) {
+# 
+#   if (!all(unlist(lapply(c("pixelGroupMap", "cohortData", "rasterToMatch", "thlb"), suppliedElsewhere, sim = sim)))) {
+#     stop("please supply all objects - this module has no defaults at this time")
+#   }
+#   return(sim)
+# }
 
 .inputObjects <- function(sim) {
-
-  if (!all(unlist(lapply(c("pixelGroupMap", "cohortData", "rasterToMatch", "thlb"), suppliedElsewhere, sim = sim)))) {
-    stop("please supply all objects - this module has no defaults at this time")
+  
+  cacheTags <- c(currentModule(sim), "otherFunctions:.inputObjects")
+  dPath <- asPath(inputPath(sim), 1)
+  message(currentModule(sim), ": using dataPath '", dPath, "'.")
+  
+  # rasterToMatch mandatory (stop if missing)
+  if (!suppliedElsewhere("rasterToMatch", sim)) {
+    stop("rasterToMatch must be supplied")
   }
+  
+  if (!suppliedElsewhere("cohortData", sim)) {
+    sim$cohortData <- data.table::data.table(
+      pixelGroup = 1L,
+      age = 10L,
+      species = "dummySpecies",
+      biomass = 100
+    )
+  }
+  
+  if (!suppliedElsewhere("pixelGroupMap", sim)) {
+    sim$pixelGroupMap <- sim$rasterToMatch
+    sim$pixelGroupMap[!is.na(sim$pixelGroupMap[])] <- 1
+  }
+
+  # pixelGroupMap dummy from rasterToMatch
+  if (!suppliedElsewhere("pixelGroupMap", sim)) {
+    sim$pixelGroupMap <- terra::rast(sim$rasterToMatch)
+    vals <- terra::values(sim$pixelGroupMap)
+    vals[!is.na(vals)] <- 1L
+    terra::values(sim$pixelGroupMap) <- vals
+  }
+
+
+  # thlb build from other layers if missing
+  if (!suppliedElsewhere("thlb", sim)) {
+    # Provide DEM if not supplied elsewhere
+    dem <- prepInputs(
+      targetFile = "gtopo30Canada.tif",
+      archive = NULL,
+      url = NULL,
+      to = sim$rasterToMatch,
+      destinationPath = dPath,
+      fun = "terra::rast",
+      overwrite = FALSE, 
+      userTags = c(cacheTags, "dem")
+    )
+    
+    #Managed Forests of Canada
+    #get map of forest management (2020)
+    #values are 11 - long-term tenure, 12 - short-term tenure, 13 other, 20 Protected aras,
+    #31 Federal reserve, 32 Indian Reserve, 33 Restricted, 40 Treaty and Settlement, 50 Private forests
+    #100 is water
+    #no harvest on 100 (water), 32 (indian reserve), 33 (Restricted), 20 (Protected), 13 (Other)
+    #harvest on 11, 12, and 50
+    ManagedForest <- prepInputs(url = paste0("https://drive.google.com/file/d",
+                                             "/1W2EiRtHj_81ZyKk5opqMkRqCA1tRMMvB/view?usp=share_link"),
+                                fun = "terra::rast",
+                                to = sim$rasterToMatch, 
+                                method = "near",
+                                destinationPath = "GIS",
+                                targetFile = "Canada_MFv2017.tif")
+    
+    
+    # ensure terra raster objects
+    rtm <- sim$rasterToMatch
+    if (!inherits(rtm, "SpatRaster")) rtm <- terra::rast(rtm)
+    
+    # Create binary mask: THLB = 1 where DEM < 1000
+    rtm[!is.na(rtm)] <- 1
+    thlb <- terra::mask(dem < 2000, rtm)
+    thlb <- terra::mask(x = rtm, maskvalues = c(11, 12, 50), mask = ManagedForest, inverse = TRUE)
+    sim$thlb <- thlb
+  }
+  
   return(sim)
 }
