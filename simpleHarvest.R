@@ -23,8 +23,10 @@ defineModule(sim, list(
   reqdPkgs = list("PredictiveEcology/LandR@development (>= 1.1.5.9048)", 'sf', 'magrittr', 'fasterize', "terra"),
   parameters = rbind(
     #defineParameter("paramName", "paramClass", value, min, max, "parameter description"),
-    defineParameter(".plotInitialTime", "numeric", NA, NA, NA, "This describes the simulation time at which the first plot event should occur"),
-    defineParameter(".plotInterval", "numeric", NA, NA, NA, "This describes the simulation time interval between plot events"),
+    defineParameter(".plotInitialTime", "numeric", start(sim), NA, NA, "This is here for backwards compatibility. Please use `.plots`"),
+    defineParameter(".plots", "character", NA, NA, NA,
+                    "This describes the type of 'plotting' to do. See `?Plots` for possible types. To omit, set to NA"),
+    defineParameter(".plotInterval", "numeric", NA, NA, NA,"This describes the simulation time interval between plot events"),
     defineParameter(".saveInitialTime", "numeric", NA, NA, NA, "This describes the simulation time at which the first save event should occur"),
     defineParameter(".saveInterval", "numeric", NA, NA, NA, "This describes the simulation time interval between save events"),
     defineParameter(".useCache", "logical", FALSE, NA, NA, "Should this entire module be run with caching activated?
@@ -77,13 +79,37 @@ doEvent.simpleHarvest = function(sim, eventTime, eventType) {
       sim <- scheduleEvent(sim, P(sim)$.plotInitialTime, "simpleHarvest", "plot")
 
     },
-    plot = {
-      plot(sim$rstCurrentHarvest)
-      sim <- scheduleEvent(sim, time(sim) + P(sim)$.plotInterval, "simpleHarvest", "plot")
-
+    # plot = {
+    #   plot(sim$rstCurrentHarvest)
+    #   sim <- scheduleEvent(sim, time(sim) + P(sim)$.plotInterval, "simpleHarvest", "plot")
+    # 
+    # },
+   
+  
+   plot = {
+     if (!is.null(sim$rstCurrentHarvest)) {
+       # Annual harvest plot
+       Plots(sim$rstCurrentHarvest,
+             fn       = plot_simpleHarvest,
+             type     = P(sim)$.plots,
+             filename = paste0("currentHarvest_year_", time(sim)),
+             title    = paste0("Annual Harvest: year ", time(sim))
+       )
+       
+       # Cumulative harvest plot
+       Plots(sim$harvestMap,
+             fn       = plot_simpleHarvest,
+             type     = P(sim)$.plots,
+             filename = paste0("cumulativeHarvest_year_", time(sim)),
+             title    = paste0("Cumulative Harvest: year ", time(sim))
+       )
+     }
+     
+     # Reschedule the next plot event
+     sim <- scheduleEvent(sim, time(sim) + P(sim)$.plotInterval, "simpleHarvest", "plot")
     },
-   harvest = {
-    browser()
+   
+    harvest = {
      # Generate the current harvest raster (SpatRaster)
      sim$rstCurrentHarvest <- harvestSpreadInputs(
        pixelGroupMap = sim$pixelGroupMap,
@@ -200,7 +226,6 @@ harvestSpreadInputs <- function(pixelGroupMap,
 
   #calculate initial cuts by assuming every cut reaches the max
   initialCuts <- sample(landStats$pixelIndex, size = minCuts, replace = FALSE)
-  browser()
   iteration <- spread2(landscape = harvestableAreas,
                        start = initialCuts,
                        asRaster = FALSE,
@@ -326,3 +351,4 @@ harvestSpreadInputs <- function(pixelGroupMap,
   
   return(sim)
 }
+
