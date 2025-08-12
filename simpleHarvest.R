@@ -79,13 +79,7 @@ doEvent.simpleHarvest = function(sim, eventTime, eventType) {
       sim <- scheduleEvent(sim, P(sim)$.plotInitialTime, "simpleHarvest", "plot")
 
     },
-    # plot = {
-    #   plot(sim$rstCurrentHarvest)
-    #   sim <- scheduleEvent(sim, time(sim) + P(sim)$.plotInterval, "simpleHarvest", "plot")
-    # 
-    # },
-   
-  
+    
    plot = {
      if (!is.null(sim$rstCurrentHarvest)) {
        # Annual harvest plot
@@ -166,7 +160,6 @@ Init <- function(sim) {
   return(invisible(sim))
 }
 
-
 ### template for plot events
 plotFun <- function(sim) {
 
@@ -196,6 +189,16 @@ harvestSpreadInputs <- function(pixelGroupMap,
   pgVals <- terra::values(pixelGroupMap)[, 1]  # ensure it's a vector
   thlbVals <- terra::values(thlb)[, 1]
   
+  # # Assuming pixelGroupMap is a SpatRaster with pixelGroup IDs
+  # ageRaster <- pixelGroupMap
+  # Plots(ageRaster,
+  #       fn       = plot_simpleHarvestageMap,
+  #       type     = "screen",
+  #       filename = paste0("standAge_year_", time(sim)),
+  #       title    = paste0("Stand Age: year ", time(sim)),
+  #       maxAge   = 200  # example cap
+  # )
+  # 
   # Combine values into a data.table and clean
   pixID <- data.table(
     pixelGroup = pgVals,
@@ -265,7 +268,7 @@ harvestSpreadInputs <- function(pixelGroupMap,
 
   return(rstCurrentHarvest)
 }
-# 
+# important note about .inputObjects
 # .inputObjects <- function(sim) {
 # 
 #   if (!all(unlist(lapply(c("pixelGroupMap", "cohortData", "rasterToMatch", "thlb"), suppliedElsewhere, sim = sim)))) {
