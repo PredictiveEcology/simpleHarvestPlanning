@@ -86,7 +86,7 @@ doEvent.simpleHarvest = function(sim, eventTime, eventType) {
       if (!is.null(sim$rstCurrentHarvest)) {
         # Annual harvest plot
         Plots(sim$rstCurrentHarvest,
-              fn       = plot_genericMap,
+              fn       = plot_raster,
               type     = P(sim)$.plots,
               filename = paste0("currentHarvest_year_", time(sim)),
               title    = paste0("Annual Harvest: year ", time(sim))
@@ -94,7 +94,7 @@ doEvent.simpleHarvest = function(sim, eventTime, eventType) {
         
         # Cumulative harvest plot
         Plots(sim$cumulativeHarvestMap,
-              fn       = plot_genericMap,
+              fn       = plot_raster,
               type     = P(sim)$.plots,
               filename = paste0("cumulativeHarvest_year_", time(sim)),
               title    = paste0("Cumulative Harvest: year ", time(sim))
