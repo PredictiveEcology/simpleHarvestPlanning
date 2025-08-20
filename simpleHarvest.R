@@ -20,7 +20,7 @@ defineModule(sim, list(
   timeunit = "year",
   citation = list("citation.bib"),
   documentation = list("README.txt", "simpleHarvest.Rmd"),
-  reqdPkgs = list("PredictiveEcology/LandR@development (>= 1.1.5.9048)", 'sf', 'magrittr', 'fasterize', "terra"),
+  reqdPkgs = list("PredictiveEcology/LandR@development (>= 1.1.5.9055)", 'sf', 'magrittr', 'fasterize', "terra"),
   parameters = rbind(
     #defineParameter("paramName", "paramClass", value, min, max, "parameter description"),
     defineParameter(".plotInitialTime", "numeric", start(sim), NA, NA, "This is here for backwards compatibility. Please use `.plots`"),
