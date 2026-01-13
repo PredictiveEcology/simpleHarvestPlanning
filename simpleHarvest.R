@@ -48,7 +48,9 @@ defineModule(sim, list(
                     desc = "maximum size for harvestable patches, in pixels"),
     defineParameter("spreadProb", "numeric", 0.24, 0.01, 1,
                     desc = paste("spread prob when determing harvest patch size. Larger spreadProb yields cuts closer to max.",
-                                 "Exceeding 0.24 will likely result in harvest patches that are maximum size"))
+                                 "Exceeding 0.24 will likely result in harvest patches that are maximum size")), 
+    defineParameter("verbose", "numeric", 0, 0, 1, 
+                    desc = "if 1, print more detailed messaging about harvest")
   ),
   
   # inputObjects
@@ -187,14 +189,17 @@ doEvent.simpleHarvest = function(sim, eventTime, eventType) {
         pixelGroup = pixelGroup,
         pixelIndex =  pixelIndex 
       )
+ 
+      harvestIndex <- harvestIndex[, .SD[1], by = .(year, pixelIndex)]
+      cdLong <- LandR::addPixels2CohortData(sim$cohortData, sim$pixelGroupMap)
       
       # Merge cohort data and append to harvestSummary
       sim$harvestSummary <- rbind(
         sim$harvestSummary,
         merge(
           harvestIndex,
-          sim$cohortData[, .(pixelGroup, speciesCode, age, B)],
-          by = "pixelGroup",
+          cdLong[, .(pixelGroup, pixelIndex, speciesCode, age, B)],
+          by = c("pixelGroup", "pixelIndex"),
           all.x = TRUE
         ),
         fill = TRUE
@@ -380,9 +385,14 @@ harvestSpreadInputs <- function(pixelGroupMap,
   # -------------------------------
   # Add pixelIndex to cohortData
   # -------------------------------
-  cohortData <- merge(cohortData, pixID[, .(pixelGroup, pixelIndex)],
-                      by = "pixelGroup", all.x = TRUE)
-  cohortData <- cohortData[!is.na(pixelIndex)]
+  
+  cohortData <- LandR::addPixels2CohortData(cohortData = cohortData, 
+                                            pixelGroupMap = pixelGroupMap)
+  cohortData <- cohortData[pixID, on = c("pixelGroup", "pixelIndex")]
+  
+  # cohortData <- cohortData[!is.na(pixelIndex)]
+  #TODO: confirm if any NAs are present 
+  
   
   # assign blockId to cohortData for performance check ---
   cohortData[, blockId := terra::values(blockId)[pixelIndex]]
@@ -420,12 +430,13 @@ harvestSpreadInputs <- function(pixelGroupMap,
     ht_block <- target[[as.character(b)]]
     if (length(pixelsInBlock) == 0 || is.null(ht_block)) next
     
-    cat("Processing block:", b,
-        "| pixels:", length(pixelsInBlock),
-        "| target:", paste(capture.output(str(ht_block)), collapse=" "), "\n")
-    
+  if (P(sim)$verbose) {
+      cat("Processing block:", b,
+          "| pixels:", length(pixelsInBlock),
+          "| target:", paste(capture.output(str(ht_block)), collapse=" "), "\n")
+  }
     species_in_block <- unique(cohortData[pixelIndex %in% pixelsInBlock, speciesCode])
-    
+
     for (sp in species_in_block) {
       ht <- if(is.list(ht_block)) {
         val <- ht_block[[sp]]; if(is.null(val)) val <- ht_block$default; as.numeric(val[1])
