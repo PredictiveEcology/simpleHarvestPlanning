@@ -91,7 +91,6 @@ defineModule(sim, list(
                   desc = "Harvestable pixels mask"))
   
 ))
-  
  #---------------------------------------------------------------------------------------------------
 doEvent.simpleHarvest = function(sim, eventTime, eventType) {
   switch(
@@ -258,7 +257,6 @@ doEvent.simpleHarvest = function(sim, eventTime, eventType) {
   
   return(invisible(sim))
 }
-
 #---------------------------------------------------------------------------------------------------
 # Initialization
 Init <- function(sim) {
