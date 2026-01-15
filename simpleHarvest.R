@@ -48,9 +48,9 @@ defineModule(sim, list(
                     desc = "maximum size for harvestable patches, in pixels"),
     defineParameter("spreadProb", "numeric", 0.24, 0.01, 1,
                     desc = paste("spread prob when determing harvest patch size. Larger spreadProb yields cuts closer to max.",
-                                 "Exceeding 0.24 will likely result in harvest patches that are maximum size")), 
-    defineParameter("verbose", "numeric", 0, 0, 1, 
-                    desc = "if 1, print more detailed messaging about harvest")
+                                 "Exceeding 0.24 will likely result in harvest patches that are maximum size"))
+    # defineParameter("verbose", "numeric", 0, 0, 1, 
+    #                 desc = "if 1, print more detailed messaging about harvest")
   ),
   
   # inputObjects
@@ -93,7 +93,7 @@ defineModule(sim, list(
                   desc = "Harvestable pixels mask"))
   
 ))
- #---------------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------------
 doEvent.simpleHarvest = function(sim, eventTime, eventType) {
   switch(
     eventType,
@@ -189,7 +189,7 @@ doEvent.simpleHarvest = function(sim, eventTime, eventType) {
         pixelGroup = pixelGroup,
         pixelIndex =  pixelIndex 
       )
- 
+      
       harvestIndex <- harvestIndex[, .SD[1], by = .(year, pixelIndex)]
       cdLong <- LandR::addPixels2CohortData(sim$cohortData, sim$pixelGroupMap)
       
@@ -338,7 +338,6 @@ harvestSpreadInputs <- function(pixelGroupMap,
                                 target,
                                 year) {
   
- 
   # -------------------------------
   # Initialize outputs
   # -------------------------------
@@ -348,6 +347,7 @@ harvestSpreadInputs <- function(pixelGroupMap,
   
   speciesHarvestMaps <- list()
   harvestStats <- data.table()
+  
   # --------------------------------------
   # Biomass-weighted age per pixelGroup
   # --------------------------------------
@@ -385,60 +385,37 @@ harvestSpreadInputs <- function(pixelGroupMap,
   # -------------------------------
   # Add pixelIndex to cohortData
   # -------------------------------
-  
   cohortData <- LandR::addPixels2CohortData(cohortData = cohortData, 
                                             pixelGroupMap = pixelGroupMap)
   cohortData <- cohortData[pixID, on = c("pixelGroup", "pixelIndex")]
   
-  # cohortData <- cohortData[!is.na(pixelIndex)]
-  #TODO: confirm if any NAs are present 
-  
-  
   # assign blockId to cohortData for performance check ---
   cohortData[, blockId := terra::values(blockId)[pixelIndex]]
-  
-  # Leading species per pixel
-  cohortData_leading <- cohortData[, .SD[which.max(B)], by = pixelIndex]
   
   # -------------------------------
   # Harvest loop: blocks -> species
   # -------------------------------
   uniqueBlocks <- sort(unique(na.omit(terra::values(blockId))))
   uniqueBlocksChar <- as.character(uniqueBlocks)
- 
+  
   # Make sure target has names
-  if (is.null(names(target))) {
-    names(target) <- as.character(seq_along(target))
-  }
+  if (is.null(names(target))) names(target) <- as.character(seq_along(target))
   
-  # Check for missing targets
   missingBlocks <- setdiff(uniqueBlocksChar, names(target))
-  if (length(missingBlocks) > 0) {
-    stop(paste("Missing harvest target(s) for blockId(s):",
-               paste(missingBlocks, collapse = ", ")))
-  }
+  if (length(missingBlocks) > 0) stop("Missing harvest targets: ", paste(missingBlocks, collapse = ", "))
   
-  # Check for extra targets
   extraTargets <- setdiff(names(target), uniqueBlocksChar)
-  if (length(extraTargets) > 0) {
-    warning(paste("Extra harvest target(s) provided that are not present in blockId:",
-                  paste(extraTargets, collapse = ", ")))
-  }
+  if (length(extraTargets) > 0) warning("Extra targets provided: ", paste(extraTargets, collapse = ", "))
   
   for (b in uniqueBlocks) {
     pixelsInBlock <- landStats[blockId == b, pixelIndex]
     ht_block <- target[[as.character(b)]]
     if (length(pixelsInBlock) == 0 || is.null(ht_block)) next
     
-  if (P(sim)$verbose) {
-      cat("Processing block:", b,
-          "| pixels:", length(pixelsInBlock),
-          "| target:", paste(capture.output(str(ht_block)), collapse=" "), "\n")
-  }
     species_in_block <- unique(cohortData[pixelIndex %in% pixelsInBlock, speciesCode])
-
+    
     for (sp in species_in_block) {
-      ht <- if(is.list(ht_block)) {
+      ht <- if (is.list(ht_block)) {
         val <- ht_block[[sp]]; if(is.null(val)) val <- ht_block$default; as.numeric(val[1])
       } else {
         as.numeric(ht_block)
@@ -473,47 +450,76 @@ harvestSpreadInputs <- function(pixelGroupMap,
       spHarvest <- terra::rast(pixelGroupMap)
       spHarvest[] <- 0
       spHarvest[iteration$pixels] <- 1
-      speciesHarvestMaps[[sp]] <- if(is.null(speciesHarvestMaps[[sp]])) spHarvest else speciesHarvestMaps[[sp]] + spHarvest
+      speciesHarvestMaps[[sp]] <- if (is.null(speciesHarvestMaps[[sp]])) spHarvest else speciesHarvestMaps[[sp]] + spHarvest
       
-      # Update harvestStats
+      # ----------------------
+      # Verbose live printing
+      # ----------------------
+      totalPixForSpecies <- sum(cohortData[pixelIndex %in% pixelsInBlock, speciesCode] == sp)
+      targetPixels <- round(ht * totalPixForSpecies, 2)
+      nharvested <- totalCut
+      discrepancy <- nharvested - targetPixels
+      status <- if (discrepancy > 0) "Over" else if (discrepancy < 0) "Under" else "OK"
+      
+      # # Add reason if under-harvested
+      # reason <- ""
+      # if (status == "Under") {
+      #   if (length(iteration$pixels) < nPix) {
+      #     reason <- "Not enough harvestable area"
+      #   } else {
+      #     reason <- "Unknown limitation"
+      #   }
+      # } else if (status == "Over") {
+      #   reason <- "Spread exceeded target"
+      # }
+      
+      message(sprintf(
+        "Year: %d | Block: %s | Species: %s | Pixels harvested: %d | Target pixels: %.2f | Target fraction: %.2f | Difference: %.2f | Status: %s \n",
+        year, b, sp, nharvested, targetPixels, ht, discrepancy, status
+      ))
+      flush.console()
+      
+      # ----------------------
+      # Update harvest Stats inside species loop
+      # ----------------------
       harvestStats <- rbind(
         harvestStats,
         data.table(
-          year = year,
+          Year = year,
           blockId = b,
           speciesCode = sp,
           maxCutSize = maxCutSize,
           minCuts = minCuts,
           totalCut = totalCut,
           nPix = nPix,
-          pixelIndex = iteration$pixels,
-          pixelGroup = pgVals[iteration$pixels],
+          pixelIndex = list(iteration$pixels),
+          pixelGroup = list(pgVals[iteration$pixels]),
           pix_sp = list(pix_sp),
           initialCuts = list(initialCuts)
         )
       )
-      
-      cat(sprintf("  Species '%s' harvested %d pixels in block %s (target %.2f)\n",
-                  sp, totalCut, b, ht))
-    }
-  }
+    } # end species loop
+  } # end block loop
   
   # -------------------------------
-  # Harvest performance diagnostics
+  # Harvest performance diagnostics (after all loops)
   # -------------------------------
   landStatsPerf <- cohortData[, .N, by = blockId]
-  
-  # expected pixels to harvest per block for this event/year
   landStatsPerf[, expectedAnnualHarvest := N * target[as.character(blockId)]]
-  
-  # Total expected harvest this year
   expectedTotal <- sum(landStatsPerf$expectedAnnualHarvest)
   
-  # Observed harvest
-  observedBlock <- harvestStats[, .(observedHarvest = length(unique(pixelIndex))), by = blockId]
-  observedYear  <- harvestStats[, .(observedHarvest = length(unique(pixelIndex))), by = year]
+  observedBlock <- harvestStats[, .(
+    observedHarvest = length(unique(unlist(pixelIndex)))
+  ), by = blockId]
   
-  # Compare
+  observedYear <- harvestStats[, .(
+    observedHarvest = length(unique(unlist(pixelIndex)))
+  ), by = Year]
+  
+  observedBlockYear <- harvestStats[, .(
+    observedHarvest = length(unique(unlist(pixelIndex)))
+  ), by = .(Year, blockId)]
+  
   compareBlock <- merge(
     observedBlock,
     landStatsPerf[, .(blockId, expectedHarvest = expectedAnnualHarvest)],
@@ -523,19 +529,19 @@ harvestSpreadInputs <- function(pixelGroupMap,
   
   compareYear <- merge(
     observedYear,
-    data.table(year = year, expectedHarvest = expectedTotal),
-    by = "year",
+    data.table(Year = year, expectedHarvest = expectedTotal),
+    by = "Year",
     all = TRUE
   )
   
-  # Return performance
   harvestPerformance <- list(
-    blockSizes   = landStatsPerf,
-    expectedTotal = expectedTotal,
-    observedYear  = observedYear,
-    observedBlock = observedBlock,
-    compareYear   = compareYear,
-    compareBlock  = compareBlock
+    blockSizes       = landStatsPerf,
+    expectedTotal    = expectedTotal,
+    observedYear     = observedYear,
+    observedBlock    = observedBlock,
+    observedBlockYear= observedBlockYear,
+    compareYear      = compareYear,
+    compareBlock     = compareBlock
   )
   
   # -------------------------------
