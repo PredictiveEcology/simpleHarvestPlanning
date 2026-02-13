@@ -1,26 +1,29 @@
 ---
-title: "simpleHarvest"
-author: "ieddy & pkalanta"
-date: "`r format(Sys.time(), '%d %B %Y')`" #"15 August 2019"
-output: pdf_document
-            toc: true
-            toc_depth: 2
-            number_sections: true
-            ---
-            
-            ```{r setup, include=FALSE}
-            knitr::opts_chunk$set(
-              echo = TRUE,
-              message = FALSE,
-              warning = FALSE,
-              fig.align = "center"
-            )
-            
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+------------------------------------------------------------------------
+
+title: "simpleHarvest" author: "ieddy & pkalanta" date:
+"`r format(Sys.time(), '%d %B %Y')`" \#"15 August 2019" output:
+pdf_document toc: true toc_depth: 2 number_sections: true ---
+
+````         
+        ```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center"
+)
+
 library(Require)
 
 Require(c("SpaDES.core", "PredictiveEcology/SpaDES.docs",'RCurl', 'XML', 'snow', 
-          'googledrive', 'httr2', "gert", "remotes", "terra", "data.table"),
-          upgrade = FALSE, install = FALSE)
+  'googledrive', 'httr2', "gert", "remotes", "terra", "data.table"),
+  upgrade = FALSE, install = FALSE)
 
 # Overview
 
@@ -66,9 +69,9 @@ For help writing in R Markdown, see http://rmarkdown.rstudio.com/.
 library(SpaDES)
 # 1. Set paths
 setPaths(modulePath = file.path("/home/ieddy/Git"),
-         inputPath = file.path("../../temp"),
-         outputPath = file.path("../../temp"),
-         cachePath = file.path("../../temp"))
+ inputPath = file.path("../../temp"),
+ outputPath = file.path("../../temp"),
+ cachePath = file.path("../../temp"))
 
 getPaths() # shows where the 4 relevant paths are
 
@@ -125,190 +128,227 @@ mySim <- simInit(
   ),
 
 mySim <- simInit(times = times, params = parameters, modules = modules,
-                 objects = objects)
+     objects = objects)
 
 mySimOut <- spades(mySim)
 ```
+````
 
 # Events
 
-The `simpleHarvest` module responds to scheduled simulation events and performs
-harvest-related actions when triggered. Events are typically scheduled on an
-annual timestep.
+The `simpleHarvest` module responds to scheduled simulation events and
+performs harvest-related actions when triggered. Events are typically
+scheduled on an annual timestep.
 
 ## Harvest event
 
-The main harvest event is executed once per simulation year. During this event,
-the module:
+The main harvest event is executed once per simulation year. During this
+event, the module:
 
-1. Identifies eligible pixels based on minimum harvest age and the timber
-   harvesting land base (THLB).
-2. Computes block-level harvest targets, either from predefined inputs or
-   dynamically based on current landscape conditions.
-3. Allocates harvest spatially using a stochastic spread algorithm, subject to
-   maximum patch size constraints.
-4. Updates cohort ages and biomass for harvested pixels.
-5. Records realized harvest statistics for the current year.
+1.  Identifies eligible pixels based on minimum harvest age and the
+    timber harvesting land base (THLB).
+2.  Computes block-level harvest targets, either from predefined inputs
+    or dynamically based on current landscape conditions.
+3.  Allocates harvest spatially using a stochastic spread algorithm,
+    subject to maximum patch size constraints.
+4.  Updates cohort ages and biomass for harvested pixels.
+5.  Records realized harvest statistics for the current year.
 
-This event is responsible for the majority of the module’s functionality and
-drives landscape change related to forest harvesting.
+This event is responsible for the majority of the module’s functionality
+and drives landscape change related to forest harvesting.
 
 ## Initialization event (if applicable)
 
-If an initialization event is defined, it is executed at the beginning of the
-simulation. This event prepares required data structures, initializes summary
-tables, and performs basic validation of inputs.
+If an initialization event is defined, it is executed at the beginning
+of the simulation. This event prepares required data structures,
+initializes summary tables, and performs basic validation of inputs.
 
 ## Output / summary event (optional)
 
-Some configurations of the `simpleHarvest` module include an output or summary
-event, which runs after harvest allocation each year. This event collects
-harvest data for later analysis and visualization, including:
+Some configurations of the `simpleHarvest` module include an output or
+summary event, which runs after harvest allocation each year. This event
+collects harvest data for later analysis and visualization, including:
 
-- **Annual harvest statistics**, aggregated across blocks and/or species, 
-  reporting harvested biomass, area, or pixel counts.  
-- **Spatial harvest maps**, such as:
-  - `rstCurrentHarvest`: pixels harvested in the current year  
-  - `speciesHarvestMaps`: species-specific harvested biomass maps  
-  - `timeSinceHarvest`: raster tracking years since last harvest  
-  - `cumulativeHarvestMap`: raster of cumulative harvested area or biomass  
+-   **Annual harvest statistics**, aggregated across blocks and/or
+    species, reporting harvested biomass, area, or pixel counts.\
+-   **Spatial harvest maps**, such as:
+    -   `rstCurrentHarvest`: pixels harvested in the current year\
+    -   `speciesHarvestMaps`: species-specific harvested biomass maps\
+    -   `timeSinceHarvest`: raster tracking years since last harvest\
+    -   `cumulativeHarvestMap`: raster of cumulative harvested area or
+        biomass
 
-These outputs allow users to monitor harvest performance, validate targets,
-and visualize both temporal and spatial patterns of harvesting across the
-landscape.
+These outputs allow users to monitor harvest performance, validate
+targets, and visualize both temporal and spatial patterns of harvesting
+across the landscape.
 
 ## Plotting
 
-The `simpleHarvest` module can produce summary plots to support inspection and
-validation of harvest behavior during and after a simulation.
+The `simpleHarvest` module can produce summary plots to support
+inspection and validation of harvest behavior during and after a
+simulation.
 
 Typical plots include:
 
-- **Annual harvested volume**, showing total realized harvest per year and
-  allowing comparison with target harvest levels.
-- **Harvested area through time**, summarizing the spatial extent of harvest
-  events across simulation years.
-- **Block-level harvest summaries**, illustrating how harvest is distributed
-  among management blocks.
-- **Species-level harvest summaries**, showing the contribution of individual
-  species to total harvested volume.
+-   **Annual harvested volume**, showing total realized harvest per year
+    and allowing comparison with target harvest levels.
+-   **Harvested area through time**, summarizing the spatial extent of
+    harvest events across simulation years.
+-   **Block-level harvest summaries**, illustrating how harvest is
+    distributed among management blocks.
+-   **Species-level harvest summaries**, showing the contribution of
+    individual species to total harvested volume.
 
-When enabled, spatial plots may also be produced to visualize the location and
-configuration of harvested patches for selected years.
+When enabled, spatial plots may also be produced to visualize the
+location and configuration of harvested patches for selected years.
 
-These plots are intended for diagnostic and exploratory purposes and can be
-used to assess whether harvest targets are met and whether spatial patterns are
-consistent with model assumptions.
+These plots are intended for diagnostic and exploratory purposes and can
+be used to assess whether harvest targets are met and whether spatial
+patterns are consistent with model assumptions.
 
 ## Saving
 
-The `simpleHarvest` module saves harvest-related outputs to support downstream
-analysis, validation, and visualization.
+The `simpleHarvest` module saves harvest-related outputs to support
+downstream analysis, validation, and visualization.
 
 Saved objects typically include:
 
-- **Annual harvest summary tables**, containing realized harvest volume and/or
-  harvested area by year.
-- **Block-level harvest statistics**, summarizing harvest allocation within
-  management blocks.
-- **Species-level harvest statistics**, reporting harvested volume by species
-  and year.
-- **Spatial harvest outputs** (optional), identifying pixels or patches that
-  were harvested in each simulation year.
+-   **Annual harvest summary tables**, containing realized harvest
+    volume and/or harvested area by year.
+-   **Block-level harvest statistics**, summarizing harvest allocation
+    within management blocks.
+-   **Species-level harvest statistics**, reporting harvested volume by
+    species and year.
+-   **Spatial harvest outputs** (optional), identifying pixels or
+    patches that were harvested in each simulation year.
 
-These outputs are stored within the simulation object for access by subsequent
-modules and may also be written to disk depending on user configuration. Saved
-outputs are intended to be lightweight and reproducible, enabling users to
-reconstruct harvest dynamics without rerunning the full simulation.
+These outputs are stored within the simulation object for access by
+subsequent modules and may also be written to disk depending on user
+configuration. Saved outputs are intended to be lightweight and
+reproducible, enabling users to reconstruct harvest dynamics without
+rerunning the full simulation.
 
 # Data dependencies
 
-The `simpleHarvest` module requires the following data inputs to run correctly:
+The `simpleHarvest` module requires the following data inputs to run
+correctly:
 
-- **`cohortData`** (data.frame / data.table)  
-  Contains species–age cohort information for each pixel. Used to identify
-  harvestable cohorts, compute biomass, and update post-harvest conditions.  
-  **Required.**
+-   **`cohortData`** (data.frame / data.table)\
+    Contains species–age cohort information for each pixel. Used to
+    identify harvestable cohorts, compute biomass, and update
+    post-harvest conditions.\
+    **Required.**
 
-- **`pixelGroupMap`** (raster or matrix)  
-  Maps each pixel to a management block or group. Used to allocate harvest
-  spatially according to block-level rules.  
-  **Required.**
+-   **`pixelGroupMap`** (raster or matrix)\
+    Maps each pixel to a management block or group. Used to allocate
+    harvest spatially according to block-level rules.\
+    **Required.**
 
-- **`thlb`** (raster / logical)  
-  Timber harvesting land base, indicating where harvest is allowed. Pixels
-  outside the THLB are excluded from harvest.  
-  **Required.**
+-   **`thlb`** (raster / logical)\
+    Timber harvesting land base, indicating where harvest is allowed.
+    Pixels outside the THLB are excluded from harvest.\
+    **Required.**
 
-- **`blockId`** (vector or field)  
-  Identifiers for management blocks. Used to compute block-level harvest
-  targets and summaries.  
-  **Required.**
+-   **`blockId`** (vector or field)\
+    Identifiers for management blocks. Used to compute block-level
+    harvest targets and summaries.\
+    **Required.**
 
-- **`rotationAge`** (list or named vector)  
-  Rotation age for each block, used to calculate dynamic harvest targets.  
-  **Required.**
+-   **`rotationAge`** (list or named vector)\
+    Rotation age for each block, used to calculate dynamic harvest
+    targets.\
+    **Required.**
 
-- **Optional inputs** may include:
-  - **Predefined harvest targets** (if dynamic targets are not used)  
-  - **Spatial masks** for inaccessible areas  
-  - **Historical harvest maps** for comparison or validation
+-   **Optional inputs** may include:
+
+    -   **Predefined harvest targets** (if dynamic targets are not
+        used)\
+    -   **Spatial masks** for inaccessible areas\
+    -   **Historical harvest maps** for comparison or validation
 
 ## Input data
 
-How to obtain input data, and a description of the data required by the module.
-If `sourceURL` is specified, `downloadData("simpleHarvest", "path/to/modules/dir")` may be sufficient.
+How to obtain input data, and a description of the data required by the
+module. If `sourceURL` is specified,
+`downloadData("simpleHarvest", "path/to/modules/dir")` may be
+sufficient.
+
+| Name | Class | Description | Source |
+|------|-------|-------------|--------|
+
+| blockId \| SpatRaster \| Raster of block ids \|
+| cohortData \| data.table \| table with pixelGroup, age, species, and biomass of cohorts \|
+| cumulativeHarvestMap \| SpatRaster \| cumulative harvest in raster form \|
+| pixelGroupMap \| SpatRaster \| Raster of pixelGroup locations \|
+| rasterToMatch \| SpatRaster \| Template raster" \|
+| studyArea \| SpatVector \| Study area polygon \|url = "https://sis.agr.gc.ca/cansis/nsdb/ecostrat/region/ecoregion_shp.zip"|
+| thlb \| SpatRaster \| Harvestable pixels mask \| url= "<https://drive.google.com/file/d/14puAtns8oTZDtvWzpQ6_FgK4MbozGZFK/view?usp>", targetFile = "gtopo30Canada.tif"|
+| timeSinceHarvest \| SpatRaster \| map of time since last harvest; new harvests start at 0 \|
 
 ## Output data
-
 
 The `simpleHarvest` module returns a list containing four main outputs:
 
 ### 1. `rstCurrentHarvest`
-- **Type:** raster  
-- **Contents:** Marks the pixels that were harvested in the current simulation year. Typically, harvested pixels have values > 0, while non-harvested pixels are `NA`.  
-- **Purpose:** Useful for spatial visualization of harvest events and integration with other landscape analyses.
+
+-   **Type:** raster\
+-   **Contents:** Marks the pixels that were harvested in the current
+    simulation year. Typically, harvested pixels have values \> 0, while
+    non-harvested pixels are `NA`.\
+-   **Purpose:** Useful for spatial visualization of harvest events and
+    integration with other landscape analyses.
 
 ### 2. `speciesHarvestMaps`
-- **Type:** list of rasters (one per species)  
-- **Contents:** For each species, maps of harvested pixels showing species-specific biomass removal.  
-- **Purpose:** Allows analysis of species-level harvest impacts across the landscape.
+
+-   **Type:** list of rasters (one per species)\
+-   **Contents:** For each species, maps of harvested pixels showing
+    species-specific biomass removal.\
+-   **Purpose:** Allows analysis of species-level harvest impacts across
+    the landscape.
 
 ### 3. `harvestStats`
-- **Type:** data.table / data.frame  
-- **Contents:** Tabular summary of harvest events for the current year, including:
-  - `blockId` or pixel group
-  - `speciesCode`
-  - `harvested biomass` or area  
-- **Purpose:** Provides block- and species-level summaries for reporting and validation.
+
+-   **Type:** data.table / data.frame\
+-   **Contents:** Tabular summary of harvest events for the current
+    year, including:
+    -   `blockId` or pixel group
+    -   `speciesCode`
+    -   `harvested biomass` or area\
+-   **Purpose:** Provides block- and species-level summaries for
+    reporting and validation.
 
 ### 4. `harvestPerformance`
-- **Type:** data.table / data.frame  
-- **Contents:** Tracks how well the module met harvest targets, including:
-  - planned vs realized harvest
-  - discrepancies relative to feasible maximum  
-- **Purpose:** Used for validation, performance evaluation, and debugging.
+
+-   **Type:** data.table / data.frame\
+-   **Contents:** Tracks how well the module met harvest targets,
+    including:
+    -   planned vs realized harvest
+    -   discrepancies relative to feasible maximum\
+-   **Purpose:** Used for validation, performance evaluation, and
+    debugging.
 
 # Links to other modules
 
-The `simpleHarvest` module interacts with other modules through its input
-requirements and outputs:
+The `simpleHarvest` module interacts with other modules through its
+input requirements and outputs:
 
 ### Input linkages
-- **Forest succession / cohort dynamics modules**: provide `cohortData`
-  required to identify harvestable cohorts.  
-- **Landscape / landbase modules**: provide `thlb` and `pixelGroupMap` to
-  define harvestable areas and management blocks.  
+
+-   **Forest succession / cohort dynamics modules**: provide
+    `cohortData` required to identify harvestable cohorts.\
+-   **Landscape / landbase modules**: provide `thlb` and `pixelGroupMap`
+    to define harvestable areas and management blocks.
 
 ### Output linkages
-- **Habitat modules**: use `rstCurrentHarvest` and `speciesHarvestMaps` to
-  update habitat quality for wildlife.  
-- **Carbon or biomass modules**: use `harvestStats` and
-  `harvestPerformance` to quantify biomass removal or carbon flux.  
-- **Visualization modules**: use spatial outputs to generate maps of harvested
-  areas.  
 
-These linkages allow `simpleHarvest` to integrate with the simulation workflow,
-ensuring that harvest events influence downstream ecological processes and
-that the module can be informed by upstream landscape dynamics.
+-   **Habitat modules**: use `rstCurrentHarvest` and
+    `speciesHarvestMaps` to update habitat quality for wildlife.\
+-   **Carbon or biomass modules**: use `harvestStats` and
+    `harvestPerformance` to quantify biomass removal or carbon flux.\
+-   **Visualization modules**: use spatial outputs to generate maps of
+    harvested areas.
 
+These linkages allow `simpleHarvest` to integrate with the simulation
+workflow, ensuring that harvest events influence downstream ecological
+processes and that the module can be informed by upstream landscape
+dynamics.
