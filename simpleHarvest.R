@@ -48,7 +48,7 @@ defineModule(sim, list(
                     desc = "maximum size for harvestable patches, in pixels"),
     defineParameter("spreadProb", "numeric", 1, 0.01, 1,
                     desc = paste("spread prob when determing harvest patch size. Larger spreadProb yields cuts closer to max.",
-                                 "Exceeding 0.24 will likely result in harvest patches that are maximum size"))
+                                 "Exceeding 1 will likely result in harvest patches that are maximum size"))
     # defineParameter("verbose", "numeric", 0, 0, 1, 
     #                 desc = "if 1, print more detailed messaging about harvest")
   ),
@@ -145,6 +145,11 @@ doEvent.simpleHarvest = function(sim, eventTime, eventType) {
         year = as.integer(time(sim))    
       )
       
+      # # Update simulation objects
+      sim$rstCurrentHarvest <- harvestSpread$rstCurrentHarvest
+      sim$speciesHarvestMaps <- harvestSpread$speciesHarvestMaps
+      sim$cumulativeHarvestMap <- harvestSpread$cumulativeHarvestMap 
+      
       # Update simulation objects
       # Accumulate current harvest
       if (is.null(sim$rstCurrentHarvest)) {
@@ -165,7 +170,7 @@ doEvent.simpleHarvest = function(sim, eventTime, eventType) {
       
       # Store this year's performance in the list
       sim$harvestPerformance[[as.character(year)]] <- harvestSpread$harvestPerformance
-      
+       
       # Update cumulative harvest map
       if (is.null(sim$cumulativeHarvestMap)) {
         sim$cumulativeHarvestMap <- sim$rstCurrentHarvest
@@ -177,8 +182,10 @@ doEvent.simpleHarvest = function(sim, eventTime, eventType) {
       sim$timeSinceHarvest <- sim$timeSinceHarvest + 1
       
       # Identify harvested pixels
-      harvested_vals <- terra::values(sim$rstCurrentHarvest) > 0
-      sim$timeSinceHarvest[harvested_vals] <- 0
+      harvested_vals <- as.vector(sim$rstCurrentHarvest)
+      harvested_index <- which(harvested_vals > 0)
+      sim$timeSinceHarvest[harvested_index] <- 0
+      
       
       # Safeguard: only keep pixels with valid pixelGroup
       valid_pixels <- !is.na(terra::values(sim$pixelGroupMap))
@@ -293,29 +300,19 @@ Init <- function(sim) {
       speciesCode = character(), # species code
       maxCutSize = numeric(), # max patch size
       minCuts = numeric(), # number of seeds
-      totalCut = numeric(), # number of harvested pixels
+      observedHarvest_sp = numeric(), # number of harvested pixels
+      expectedHarvest_sp = numeric(), # number of expected harvested pixels
       nPix = numeric(), # target number of pixels to harvest
+      nAvailable = numeric(), # length of available pixels for harvesting
+      targetUsed = numeric(), # 
       pixelIndex = list(), # harvested pixel indices
       pixelGroup = list(), # pixelGroup values of harvested pixels
       pix_sp = list(), # all candidate pixels before selection
       initialCuts = list() # seed pixels used in spread
     )
   }
-  # Ensure thlb is initialized
-  if (is.null(sim$thlb)) {
-    sim$thlb <- sim$rasterToMatch  # or your actual THLB raster
-    sim$thlb[] <- 1                # 1 = harvestable, adjust as needed
-  }
-  # Ensure blockId is initialized
-  if (is.null(sim$blockId)) {
-    sim$blockId <- sim$thlb
-    sim$blockId[] <- 1             # default all pixels = block 1
-  }
-  # Initialize timeSinceHarvest as a SpatRaster
-  if (is.null(sim$timeSinceHarvest)) {
-    sim$timeSinceHarvest <- sim$rasterToMatch
-    sim$timeSinceHarvest[] <- 0   # 0 = never harvested
-  }
+  # Initialize once at start
+  if (is.null(sim$harvestPerformance)) sim$harvestPerformance <- list()
   
   return(invisible(sim))
 }
@@ -416,31 +413,47 @@ harvestSpreadInputs <- function(pixelGroupMap,
     #species_in_block <- unique(cohortData[pixelIndex %in% pixelsInBlock, speciesCode])
     species_in_block <- unique(cdSum[pixelIndex %in% pixelsInBlock, speciesCode])
     
-    
     for (sp in species_in_block) {
       # Determine harvest target for this species in this block
-      ht <- if (is.list(ht_block)) {
-        val <- ht_block[[sp]]; if(is.null(val)) val <- ht_block$default; as.numeric(val[1])
+      # ht <- NA_real_
+      # if (is.list(ht_block)) {
+      #   ht <- ht_block[[sp]];   # species-specific
+      #   if(is.null(ht)) ht <- ht_block$default
+      #   as.numeric(ht[1]) # block default
+      # } else {
+      #   as.numeric(ht_block)  # single numeric
+      # }
+      # if (is.na(ht) || ht <= 0) next
+      
+      ht <- NA_real_
+      if (is.list(ht_block)) {
+        ht <- ht_block[[sp]]           # species-specific
+        if (is.null(ht)) ht <- ht_block$default
+        ht <- as.numeric(ht[1])        # assign numeric back to ht
       } else {
-        as.numeric(ht_block)
+        ht <- as.numeric(ht_block)     # assign numeric back to ht
       }
+      
       if (is.na(ht) || ht <= 0) next
+      
       # Pixels for this species
-      #pix_sp <- unique(cohortData[pixelIndex %in% pixelsInBlock & speciesCode == sp, pixelIndex])
       pix_sp <- unique(cdSum[pixelIndex %in% pixelsInBlock & speciesCode %in% sp, pixelIndex])
       pix_sp <- pix_sp[!is.na(pix_sp)]
       if (length(pix_sp) == 0) next
       
       # Number of pixels to harvest
       availablePixels <- pix_sp
-      nPix <- round(ht * length(availablePixels))      # target pixels
+      nAvailable <- length(availablePixels)
+      
+      # Target pixels
+      # nPix <- round(ht * nAvailable)      
+      nPix <- ceiling(ht * nAvailable)
       if (nPix == 0) next
       
-      #minCuts <- round(nPix / maxCutSize)
-      minCuts <- ceiling(nPix / maxCutSize)           # minimum number of patches
-      maxHarvest <- minCuts * maxCutSize              # theoretical maximum harvest
+      minCuts <- ceiling(nPix / maxCutSize)         # minimum number of patches
+      maxHarvest <- minCuts * maxCutSize            # theoretical maximum harvest
       
-      feasibleMax <- min(maxHarvest, length(availablePixels))  # cannot exceed available pixels
+      feasibleMax <- min(maxHarvest, nAvailable)    # cannot exceed available pixels
       
       # Seed pixels for spread
       initialCuts <- unique(sample(availablePixels, size = minCuts, replace = FALSE))
@@ -448,10 +461,10 @@ harvestSpreadInputs <- function(pixelGroupMap,
       initialCuts <- initialCuts[!is.na(initialCuts)]
       if (length(initialCuts) == 0) next
       
-      # Restrict harvestable area to pixels dominated by species sp
+      # Harvestable raster for species
       harvestableAreasWithSp <- harvestableAreas
+      #unavailable <- setdiff(1:ncell(harvestableAreas), pix_sp)
       unavailable <- which(!1:ncell(harvestableAreas) %in% pix_sp)
-      # harvestableAreasWithSp[unavailable] <- NA
       harvestableAreasWithSp[unavailable] <- 0
       
       # Spread algorithm
@@ -462,6 +475,7 @@ harvestSpreadInputs <- function(pixelGroupMap,
         spreadProb = harvestableAreasWithSp,
         maxSize = maxCutSize
       )
+      
       totalCut <- nrow(iteration)
       
       # Update rasters
@@ -483,10 +497,10 @@ harvestSpreadInputs <- function(pixelGroupMap,
       nAvailable <- length(availablePixels)
       
       # Demand (species-level, block-level)
-      expectedHarvest_sp <- round(ht * nAvailable)
+      expectedHarvest_sp <- nPix
       
       # Spatial feasibility (diagnostic only)
-      maxFeasiblePixels <- min(nAvailable, minCuts * maxCutSize)
+      maxFeasiblePixels <- feasibleMax
       
       # Observed
       observedHarvest_sp <- totalCut
@@ -526,7 +540,10 @@ harvestSpreadInputs <- function(pixelGroupMap,
           speciesCode = sp,
           maxCutSize = maxCutSize,
           minCuts = minCuts,
-          totalCut = totalCut,
+          observedHarvest_sp = totalCut,
+          expectedHarvest_sp = expectedHarvest_sp,
+          nAvailable = nAvailable,
+          targetUsed = ht,
           nPix = nPix,
           pixelIndex = list(iteration$pixels),
           pixelGroup = list(pgVals[iteration$pixels]),
@@ -537,66 +554,52 @@ harvestSpreadInputs <- function(pixelGroupMap,
     } # end species loop
   } # end block loop
   
- 
+  
   # Harvest performance diagnostics (PIXEL-BASED, LANDIS-CONSISTENT)
+  # Ensure harvestStats is a data.table
+  setDT(harvestStats)
+
+  # Species-level comparison
+  speciesComparison <- copy(harvestStats)
   
-  # Harvestable pixels per block (after age + THLB filtering)
-  harvestableBlock <- landStats[, .N, by = blockId]
-  setnames(harvestableBlock, "N", "nHarvestablePixels")
+  speciesComparison[, discrepancy := observedHarvest_sp - expectedHarvest_sp]
+  speciesComparison[, ratio_raw := fifelse(expectedHarvest_sp > 0,
+                                           observedHarvest_sp / expectedHarvest_sp,
+                                           NA_real_)]
+  speciesComparison[, ratio := round(ratio_raw, 2)]
+  speciesComparison[, status := fifelse(
+    observedHarvest_sp == expectedHarvest_sp, "OK",
+    fifelse(
+      observedHarvest_sp < expectedHarvest_sp,
+      "Under",
+      "Over"
+    )
+  )]
   
-  # Expected harvest per block (DEMAND)
-  harvestableBlock[, expectedHarvest :=
-                     round(nHarvestablePixels * target[as.character(blockId)])
-  ]
+  # add spatial feasibility (max feasible pixels) if needed
+  # speciesComparison[, maxFeasible := ceiling(nPix / maxCutSize) * maxCutSize] # example if you want
   
-  # Observed harvest per block per year (unique pixels)
-  observedBlockYear <- harvestStats[, .(
-    observedHarvest = length(unique(unlist(pixelIndex)))
+  # Block-level summary
+  blockComparison <- speciesComparison[, .(
+    observedHarvest = sum(observedHarvest_sp),
+    expectedHarvest = sum(expectedHarvest_sp)
   ), by = .(year, blockId)]
   
-  # Merge demand and observation
-  compareBlockYear <- merge(
-    observedBlockYear,
-    harvestableBlock,
-    by = "blockId",
-    all = TRUE
-  )
+  blockComparison[, discrepancy := observedHarvest - expectedHarvest]
+  blockComparison[, ratio := round(fifelse(expectedHarvest > 0,
+                                           observedHarvest / expectedHarvest,
+                                           NA_real_), 2)]
+  blockComparison[, status := fifelse(
+    observedHarvest == expectedHarvest, "OK",
+    fifelse(observedHarvest < expectedHarvest, "Under", "Over")
+  )]
   
-  # Feasibility upper bound (spatial constraint only)
-  compareBlockYear[, maxFeasible :=
-                     pmin(
-                       nHarvestablePixels,
-                       ceiling(expectedHarvest / maxCutSize) * maxCutSize
-                     )
-  ]
-  
-  # 6. Diagnostics
-  compareBlockYear[, discrepancy := observedHarvest - expectedHarvest]
-  compareBlockYear[, ratio_raw :=
-                     fifelse(expectedHarvest > 0,
-                             observedHarvest / expectedHarvest,
-                             NA_real_)
-  ]
-  compareBlockYear[, ratio := round(ratio_raw, 2)]
-  
-  compareBlockYear[, status :=
-                     fifelse(
-                       observedHarvest == expectedHarvest, "OK",
-                       fifelse(
-                         observedHarvest < expectedHarvest,
-                         fifelse(expectedHarvest > maxFeasible,
-                                 "Under (Spatially limited)",
-                                 "Under"),
-                         "Over"
-                       )
-                     )
-  ]
-  
-  # 7. Final validation object
+  # Create final harvestPerformance list
   harvestPerformance <- list(
-    blockYear = compareBlockYear,
-    demand    = harvestableBlock,
-    observed  = observedBlockYear
+    blockYear = blockComparison,           # block/year summary
+    species   = speciesComparison[, .(year, blockId, speciesCode, expectedHarvest_sp, observedHarvest_sp, targetUsed, ratio, status)],
+    observed  = harvestStats[, .(year, blockId, speciesCode, observedHarvest_sp)],
+    demand    = harvestStats[, .(year, blockId, speciesCode, expectedHarvest_sp, targetUsed)]
   )
   
   # Return all results

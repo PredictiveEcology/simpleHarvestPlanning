@@ -281,8 +281,8 @@ sufficient.
 | cumulativeHarvestMap \| SpatRaster \| cumulative harvest in raster form \|
 | pixelGroupMap \| SpatRaster \| Raster of pixelGroup locations \|
 | rasterToMatch \| SpatRaster \| Template raster" \|
-| studyArea \| SpatVector \| Study area polygon \|url = "https://sis.agr.gc.ca/cansis/nsdb/ecostrat/region/ecoregion_shp.zip"|
-| thlb \| SpatRaster \| Harvestable pixels mask \| url= "<https://drive.google.com/file/d/14puAtns8oTZDtvWzpQ6_FgK4MbozGZFK/view?usp>", targetFile = "gtopo30Canada.tif"|
+| studyArea \| SpatVector \| Study area polygon \|url = "<https://sis.agr.gc.ca/cansis/nsdb/ecostrat/region/ecoregion_shp.zip>"\|
+| thlb \| SpatRaster \| Harvestable pixels mask \| url= "<https://drive.google.com/file/d/14puAtns8oTZDtvWzpQ6_FgK4MbozGZFK/view?usp>", targetFile = "gtopo30Canada.tif"\|
 | timeSinceHarvest \| SpatRaster \| map of time since last harvest; new harvests start at 0 \|
 
 ## Output data
