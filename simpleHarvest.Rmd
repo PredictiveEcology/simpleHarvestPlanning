@@ -1,23 +1,35 @@
+
+------
+
+title: "simpleHarvest" 
+author: "ieddy & pkalanta" 
+date:"`r format(Sys.time(), '%d %B %Y')`" \     #"15 August 2019" 
+output:
+pdf_document 
+
+toc: true toc_depth: 
+2 number_sections: 
+true ---
+
 ---
 editor_options: 
   markdown: 
     wrap: 72
----
 
-------------------------------------------------------------------------
+---       
+```{r setup, include=FALSE}
+````   
 
-title: "simpleHarvest" author: "ieddy & pkalanta" date:
-"`r format(Sys.time(), '%d %B %Y')`" \#"15 August 2019" output:
-pdf_document toc: true toc_depth: 2 number_sections: true ---
-
-````         
-        ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
   echo = TRUE,
   message = FALSE,
   warning = FALSE,
   fig.align = "center"
 )
+
+:::{.rmdimportant}
+This documentation is work in progress.
+:::
 
 library(Require)
 
