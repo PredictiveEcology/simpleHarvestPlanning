@@ -1,7 +1,7 @@
 
 ------
 
-title: "simpleHarvest" 
+title: "simpleHarvestPlanning" 
 author: "ieddy & pkalanta" 
 date:"`r format(Sys.time(), '%d %B %Y')`" \     #"15 August 2019" 
 output:
@@ -44,7 +44,7 @@ Require(c("SpaDES.core", "PredictiveEcology/SpaDES.docs",'RCurl', 'XML', 'snow',
 <!-- Module documentation should be written so that others can use your module. -->
 <!-- This is a template for module documentation, and should be changed to reflect your module. -->
 
-The `simpleHarvest` module simulates spatial forest harvesting within the
+The `simpleHarvestPlanning` module simulates spatial forest harvesting within the
 LandR framework. It allocates harvest events across the landscape while
 attempting to meet annual harvest targets under user-defined constraints.
 
@@ -53,7 +53,7 @@ selects eligible pixels based on minimum harvest age, timber harvesting land
 base (THLB), and stochastic spread rules. Harvest targets can be provided
 externely or calculated dynamically during the simulation.
 
-During each simulation year, `simpleHarvest` generates several outputs for
+During each simulation year, `simpleHarvestPlanning` generates several outputs for
 analysis and visualization, including:
 
 - **`rstCurrentHarvest`**: a raster identifying pixels harvested in the
@@ -65,7 +65,7 @@ analysis and visualization, including:
 - **`cumulativeHarvestMap`**: raster recording the cumulative harvested area
   or biomass over the simulation period.
 
-`simpleHarvest` is intended as a lightweight and flexible alternative to more
+`simpleHarvestPlanning` is intended as a lightweight and flexible alternative to more
 complex harvest models, allowing users to explore management scenarios and
 test assumptions about harvest allocation and target-setting.
 
@@ -104,7 +104,7 @@ parameters = list(
       .plotInterval = 1,
       .useCache = c(".inputObjects", "init")
     ), 
-      simpleHarvest = list(
+      simpleHarvestPlanning = list(
     .useCache      = ".inputObjects",
     # harvestTarget  = c("1" = 0.05, "2" = 0.02, "3"= 0.01, "4"= 0.008)
                            harvestTarget = list(
@@ -163,7 +163,7 @@ mySimOut <- spades(mySim)
 
 # Events
 
-The `simpleHarvest` module responds to scheduled simulation events and
+The `simpleHarvestPlanning` module responds to scheduled simulation events and
 performs harvest-related actions when triggered. Events are typically
 scheduled on an annual timestep.
 
@@ -192,7 +192,7 @@ initializes summary tables, and performs basic validation of inputs.
 
 ## Output / summary event (optional)
 
-Some configurations of the `simpleHarvest` module include an output or
+Some configurations of the `simpleHarvestPlanning` module include an output or
 summary event, which runs after harvest allocation each year. This event
 collects harvest data for later analysis and visualization, including:
 
@@ -211,7 +211,7 @@ across the landscape.
 
 ## Plotting
 
-The `simpleHarvest` module can produce summary plots to support
+The `simpleHarvesPlanning` module can produce summary plots to support
 inspection and validation of harvest behavior during and after a
 simulation.
 
@@ -235,7 +235,7 @@ patterns are consistent with model assumptions.
 
 ## Saving
 
-The `simpleHarvest` module saves harvest-related outputs to support
+The `simpleHarvestPlanning` module saves harvest-related outputs to support
 downstream analysis, validation, and visualization.
 
 Saved objects typically include:
@@ -257,7 +257,7 @@ rerunning the full simulation.
 
 # Data dependencies
 
-The `simpleHarvest` module requires the following data inputs to run
+The `simpleHarvestPlanning` module requires the following data inputs to run
 correctly:
 
 -   **`cohortData`** (data.frame / data.table)\
@@ -297,7 +297,7 @@ correctly:
 
 How to obtain input data, and a description of the data required by the
 module. If `sourceURL` is specified,
-`downloadData("simpleHarvest", "path/to/modules/dir")` may be
+`downloadData("simpleHarvestPlanning", "path/to/modules/dir")` may be
 sufficient.
 
 | Name | Class | Description | Source |
@@ -314,7 +314,7 @@ sufficient.
 
 ## Output data
 
-The `simpleHarvest` module returns a list containing four main outputs:
+The `simpleHarvestPlanning` module returns a list containing four main outputs:
 
 ### 1. `rstCurrentHarvest`
 
@@ -356,7 +356,7 @@ The `simpleHarvest` module returns a list containing four main outputs:
 
 # Links to other modules
 
-The `simpleHarvest` module interacts with other modules through its
+The `simpleHarvestPlanning` module interacts with other modules through its
 input requirements and outputs:
 
 ### Input linkages
@@ -375,7 +375,7 @@ input requirements and outputs:
 -   **Visualization modules**: use spatial outputs to generate maps of
     harvested areas.
 
-These linkages allow `simpleHarvest` to integrate with the simulation
+These linkages allow `simpleHarvestPlanning` to integrate with the simulation
 workflow, ensuring that harvest events influence downstream ecological
 processes and that the module can be informed by upstream landscape
 dynamics.

@@ -3,22 +3,24 @@
 # to all modules. Functions can be used without sim$ as they are namespaced, like functions
 # in R packages. If exact location is required, functions will be: sim$<moduleName>$FunctionName
 defineModule(sim, list(
-  name = "simpleHarvest",
+  name = "simpleHarvestPlanning",
   description = paste("This is a very simplistic harvest module designed to interface with the LandR suite of modules",
-                      "It will create a raster of harvested patches, but will not simulate actual harvest.",
-                      "Should be paired with LandR_reforestation"),
+                      "It will create a raster of harvested patches, but will not simulate actual harvest.", 
+                      "the harvest target is calculated using Hanzlik fromula.",
+                      "Should be paired with LandR_reforestation."),
+  
   keywords = c("harvest", "LandR", "rstCurrentHarvest"),
   authors = c(
     person(c("Ian"), "Eddy", email = "ian.eddy@canada.ca", role = c("aut", "cre")),
     person("Parvin", "Kalantari", email = "parvin.kalantari@nrcan-rncan.gc.ca", role = c("aut","ctb"))
   ),
   childModules = character(0),
-  version = list(SpaDES.core = "0.2.5.9008", simpleHarvest = "0.0.1"),
+  version = list(SpaDES.core = "0.2.5.9008", simpleHarvestPlanning = "0.0.1"),
   #spatialExtent = raster::extent(rep(NA_real_, 4)),
   timeframe = as.POSIXlt(c(NA, NA)),
   timeunit = "year",
   citation = list("citation.bib"),
-  documentation = list("README.txt", "simpleHarvest.Rmd"),
+  documentation = list("README.txt", "simpleHarvestPlanning.Rmd"),
   reqdPkgs = list("PredictiveEcology/LandR@development (>= 1.1.5.9055)", 'sf', 'magrittr', 'fasterize', "terra"),
   parameters = rbind(
     #defineParameter("paramName", "paramClass", value, min, max, "parameter description"),
@@ -38,19 +40,17 @@ defineModule(sim, list(
     # Harvest controls
     defineParameter("startTime", "numeric", start(sim), NA, NA,
                     desc = "Simulation time at which to initiate harvesting"),
-    # defineParameter("harvestTarget", "numeric", NA, min = 0, max = 1,
-    #                 desc= "proportion of harvestable area to harvest each timestep"),
-    defineParameter("harvestTarget", "list", NA,
-                    desc= "Harvest targets per block (optionally per species within block)"),
+    defineParameter("nBlocks", "numeric", 1L, min = 1L, max = 5L,
+                    "Number of harvest blocks (spatial partitions of THLB)"),
     defineParameter("minAgesToHarvest", "numeric", 50, 1, NA,
                     desc =  "minimum ages of trees to harvest"),
     defineParameter("maxPatchSizetoHarvest", "numeric", 10, 1, NA,
                     desc = "maximum size for harvestable patches, in pixels"),
     defineParameter("spreadProb", "numeric", 1, 0.01, 1,
                     desc = paste("spread prob when determing harvest patch size. Larger spreadProb yields cuts closer to max.",
-                                 "Exceeding 1 will likely result in harvest patches that are maximum size")),
-    defineParameter("verbose", "numeric", 0, 0, 1,
-                    desc = "if 1, print more detailed messaging about harvest")
+                                 "Exceeding 1 will likely result in harvest patches that are maximum size"))
+    # defineParameter("verbose", "numeric", 0, 0, 1, 
+    #                 desc = "if 1, print more detailed messaging about harvest")
   ),
   
   # inputObjects
@@ -94,7 +94,7 @@ defineModule(sim, list(
   
 ))
 #---------------------------------------------------------------------------------------------------
-doEvent.simpleHarvest = function(sim, eventTime, eventType) {
+doEvent.simpleHarvesPlanning = function(sim, eventTime, eventType) {
   switch(
     eventType,
     init = {
@@ -102,12 +102,14 @@ doEvent.simpleHarvest = function(sim, eventTime, eventType) {
       sim <- Init(sim)
       
       # schedule future event(s)
-      sim <- scheduleEvent(sim, P(sim)$startTime, "simpleHarvest", "harvest")
-      sim <- scheduleEvent(sim, P(sim)$.plotInitialTime, "simpleHarvest", "plot")
+      sim <- scheduleEvent(sim, P(sim)$startTime, "simpleHarvestPlanning", "harvest")
+      sim <- scheduleEvent(sim, P(sim)$.plotInitialTime, "simpleHarvestPlanning", "plot")
     },
     
     plot = {
+      
       if (!is.null(sim$rstCurrentHarvest)) {
+        
         # Create a raster colored by blockId for harvested pixels
         harvested_map <- sim$rstCurrentHarvest
         harvested_map[harvested_map > 0] <- sim$blockId[harvested_map[] > 0]
@@ -120,36 +122,78 @@ doEvent.simpleHarvest = function(sim, eventTime, eventType) {
               filename = paste0("currentHarvest_year_", time(sim)),
               title    = paste0("Annual Harvest: year ", time(sim))
         )
+        
         Plots(sim$cumulativeHarvestMap,
               fn       = plot_raster,
               type     = P(sim)$.plots,
               filename = paste0("cumulativeHarvest_year_", time(sim)),
               title    = paste0("Cumulative Harvest: year ", time(sim))
         )
+        
       }
+      
       # Reschedule the next plot event
-      sim <- scheduleEvent(sim, time(sim) + P(sim)$.plotInterval, "simpleHarvest", "plot")
+      sim <- scheduleEvent(sim, time(sim) + P(sim)$.plotInterval, "simpleHarvestPlanning", "plot")
     },
-    #---------------------------------------------------------------------------------------------------    
+    
+    #Harvest function
+    
+    # Harvest target using Hanzlik's formula
     harvest = {
+      
+      year <- as.integer(time(sim))  # Current simulation year
+      
+      # Add pixel info to cohortData
+      cdLong <- LandR::addPixels2CohortData(sim$cohortData, sim$pixelGroupMap)
+      
+      # Attach blockId from raster
+      cdLong[, blockId := terra::values(sim$blockId)[pixelIndex]]
+      
+      # --- Initialize Hanzlik target for each block
+      target <- list()
+      
+      blocks <- sort(unique(na.omit(terra::values(sim$blockId))))
+      
+      for (bv in blocks) {
+        
+        Vm <- cdLong[blockId == bv & age >= P(sim)$minAgesToHarvest,
+                     sum(B, na.rm = TRUE)]
+        
+        if (Vm <= 0) {
+          target[[as.character(bv)]] <- 0
+        } else {
+          target[[as.character(bv)]] <- 1 / P(sim)$minAgesToHarvest
+        }
+      }
+      
+      # --- Run harvest
       harvestSpread <- harvestSpreadInputs(
-        pixelGroupMap = sim$pixelGroupMap,
-        cohortData = sim$cohortData,
-        thlb = sim$thlb,
-        blockId = sim$blockId,
-        spreadProb = P(sim)$spreadProb,
-        maxCutSize = P(sim)$maxPatchSizetoHarvest,
+        pixelGroupMap  = sim$pixelGroupMap,
+        cohortData     = sim$cohortData,
+        thlb           = sim$thlb,
+        blockId        = sim$blockId,
+        target        = target,      
+        spreadProb     = P(sim)$spreadProb,
+        maxCutSize     = P(sim)$maxPatchSizetoHarvest,
         minAgesToHarvest = P(sim)$minAgesToHarvest,
-        target = P(sim)$harvestTarget,
-        year = as.integer(time(sim)),
-        verbose = P(sim)$verbose
+        year           = year
       )
       
-      # annual harvest map (binary)
+      # Update simulation objects
       sim$rstCurrentHarvest <- harvestSpread$rstCurrentHarvest
       sim$speciesHarvestMaps <- harvestSpread$speciesHarvestMaps
       
-      # update cumulative map if not exists
+
+      # Initialize once at start
+      if (is.null(sim$harvestPerformance)) sim$harvestPerformance <- list()
+      
+      # Store this year's performance in the list
+      sim$harvestPerformance[[as.character(year)]] <- harvestSpread$harvestPerformance
+      
+      # Accumulate harvestStats across years
+      sim$harvestStats <- rbind(sim$harvestStats, harvestSpread$harvestStats, fill = TRUE)
+      
+      # --- Update cumulative harvest map
       if (is.null(sim$cumulativeHarvestMap)) {
         sim$cumulativeHarvestMap <- sim$rstCurrentHarvest
       } else {
@@ -160,47 +204,26 @@ doEvent.simpleHarvest = function(sim, eventTime, eventType) {
         browser()
       }
       
-      # time since harvest
+      # Update timeSinceHarvest: +1 for all non-NA pixels, reset harvested pixels to 0
       sim$timeSinceHarvest <- sim$timeSinceHarvest + 1
-      sim$timeSinceHarvest[sim$rstCurrentHarvest] <- 0
-      
-      sim$speciesHarvestMaps <- harvestSpread$speciesHarvestMaps
-      
-      # Accumulate harvestStats across years
-      sim$harvestStats <- rbind(sim$harvestStats, harvestSpread$harvestStats, fill = TRUE)
-      
-      # sim$harvestPerformance <- harvestSpread$harvestPerformance
-      year <- as.integer(time(sim))  
-      # Initialize once at start
-      if (is.null(sim$harvestPerformance)) sim$harvestPerformance <- list()
-      
-      # Store this year's performance in the list
-      sim$harvestPerformance[[as.character(year)]] <- harvestSpread$harvestPerformance
       
       # Identify harvested pixels
       harvested_vals <- as.vector(sim$rstCurrentHarvest)
-      # harvested_index <- which(harvested_vals > 0)
-      # sim$timeSinceHarvest[harvested_index] <- 0
+      harvested_index <- which(harvested_vals > 0)
+      sim$timeSinceHarvest[harvested_index] <- 0
       
-      # Safeguard: only keep pixels with valid pixelGroup
-      valid_pixels <- !is.na(terra::values(sim$pixelGroupMap))
-      harvested_vals <- harvested_vals & valid_pixels
+      # --- Update harvestSummary
+      #pixelIndex <- which(!is.na(terra::values(sim$pixelGroupMap)) & harvested_vals)
+      pixelIndex <- which(!is.na(terra::values(sim$pixelGroupMap)) & harvested_vals > 0)
       
-      # Now extract pixel indices and pixelGroup safely
-      pixelIndex <- which(harvested_vals)
-      pixelGroup <- terra::values(sim$pixelGroupMap)[harvested_vals]
+      pixelGroup <- terra::values(sim$pixelGroupMap)[pixelIndex]
       
-      # Create a table of of harvested pixels
       harvestIndex <- data.table(
-        year = as.integer(time(sim)),          # numeric year
+        year       = year,
         pixelGroup = pixelGroup,
-        pixelIndex =  pixelIndex 
-      )
+        pixelIndex = pixelIndex
+      )[, .SD[1], by = .(year, pixelIndex)]
       
-      harvestIndex <- harvestIndex[, .SD[1], by = .(year, pixelIndex)]
-      cdLong <- LandR::addPixels2CohortData(sim$cohortData, sim$pixelGroupMap)
-      
-      # Merge cohort data and append to harvestSummary
       sim$harvestSummary <- rbind(
         sim$harvestSummary,
         merge(
@@ -211,13 +234,22 @@ doEvent.simpleHarvest = function(sim, eventTime, eventType) {
         ),
         fill = TRUE
       )
-      # Add blockId for each harvested pixel
-      block_vals <- terra::values(sim$blockId)
-      sim$harvestSummary[, blockId := block_vals[pixelIndex]]
-      # Schedule next harvest event
-      sim <- scheduleEvent(sim, time(sim) + 1, "simpleHarvest", "harvest")
-      # Schedule plot for current harvest
-      sim <- scheduleEvent(sim, time(sim), "simpleHarvest", "plot")
+      
+      # --- Save outputs
+      folders <- c("blockId", "annualHarvest", "cumulativeHarvest", "speciesHarvest")
+      for(f in folders) dir.create(file.path("outputs", f), showWarnings = FALSE, recursive = TRUE)
+      
+      terra::writeRaster(sim$blockId, file.path("outputs", "blockId", paste0("blockId_year_", year, ".tif")), overwrite = TRUE)
+      terra::writeRaster(sim$rstCurrentHarvest, file.path("outputs", "annualHarvest", paste0("currentHarvest_year_", year, ".tif")), overwrite = TRUE)
+      terra::writeRaster(sim$cumulativeHarvestMap, file.path("outputs", "cumulativeHarvest", paste0("cumulativeHarvest_year_", year, ".tif")), overwrite = TRUE)
+      
+      for(sp in names(sim$speciesHarvestMaps)) {
+        terra::writeRaster(sim$speciesHarvestMaps[[sp]], file.path("outputs", "speciesHarvest", paste0("harvest_", sp, "_year_", year, ".tif")), overwrite = TRUE)
+      }
+      
+      # --- Schedule next events
+      sim <- scheduleEvent(sim, time(sim) + 1, "simpleHarvestPlanning", "harvest")
+      sim <- scheduleEvent(sim, time(sim), "simpleHarvestPlanning", "plot")
       
     },
     
@@ -226,8 +258,10 @@ doEvent.simpleHarvest = function(sim, eventTime, eventType) {
                   "' in module '",
                   current(sim)[1, "moduleName", with = FALSE], "'", sep = ""))
   )
+  
   return(invisible(sim))
 }
+
 #---------------------------------------------------------------------------------------------------
 # Initialization
 Init <- function(sim) {
@@ -236,10 +270,23 @@ Init <- function(sim) {
     sim$rstCurrentHarvest <- sim$rasterToMatch
     sim$rstCurrentHarvest[] <- 0   # 0 = not harvested yet
   }
+  
   # Initialize cumulative harvest raster
   if (is.null(sim$cumulativeHarvestMap)) {
     sim$cumulativeHarvestMap <- sim$rasterToMatch
     sim$cumulativeHarvestMap[] <- 0
+  }
+  
+  # Ensure thlb is initialized
+  if (is.null(sim$thlb)) {
+    sim$thlb <- sim$rasterToMatch  # or your actual THLB raster
+    sim$thlb[] <- 1                # 1 = harvestable, adjust as needed
+  }
+  
+  # Ensure blockId is initialized
+  if (is.null(sim$blockId)) {
+    sim$blockId <- sim$thlb
+    sim$blockId[] <- 1             # default all pixels = block 1
   }
   # Initialize harvest summary table
   if (is.null(sim$harvestSummary)) {
@@ -260,22 +307,21 @@ Init <- function(sim) {
       speciesCode = character(), # species code
       maxCutSize = numeric(), # max patch size
       minCuts = numeric(), # number of seeds
-      observedHarvest_sp = numeric(), # number of harvested pixels
-      expectedHarvest_sp = numeric(), # number of expected harvested pixels
+      totalCut = numeric(), # number of harvested pixels
       nPix = numeric(), # target number of pixels to harvest
-      nAvailable = numeric(), # length of available pixels for harvesting
-      targetUsed = numeric(), # 
       pixelIndex = list(), # harvested pixel indices
       pixelGroup = list(), # pixelGroup values of harvested pixels
       pix_sp = list(), # all candidate pixels before selection
       initialCuts = list() # seed pixels used in spread
     )
   }
+  
   # Initialize once at start
   if (is.null(sim$harvestPerformance)) sim$harvestPerformance <- list()
   
   return(invisible(sim))
 }
+
 #---------------------------------------------------------------------------------------------------
 harvestSpreadInputs <- function(pixelGroupMap,
                                 cohortData,
@@ -285,8 +331,7 @@ harvestSpreadInputs <- function(pixelGroupMap,
                                 maxCutSize,
                                 minAgesToHarvest,
                                 target,
-                                year, 
-                                verbose) {
+                                year) {
   
   # Initialize outputs
   rstCurrentHarvest  <- terra::rast(pixelGroupMap)
@@ -296,13 +341,12 @@ harvestSpreadInputs <- function(pixelGroupMap,
   
   speciesHarvestMaps <- list()
   harvestStats <- data.table()
-  
+
   # Biomass-weighted age per pixelGroup
   cohortData <- copy(cohortData)
   cohortData[, maxB :=  max(B), .(pixelGroup)]
   standAges <- cohortData[, BweightedAge := sum(B * age) / sum(B), by = .(pixelGroup)]
   standAges <- standAges[B == maxB,]
- 
   
   #safety-catch in case maxB is tied between two species
   standAges[, N := .N, .(pixelGroup)]
@@ -322,7 +366,7 @@ harvestSpreadInputs <- function(pixelGroupMap,
                       thlb = thlbVals)
   pixID <- na.omit(pixID)
   pixID <- pixID[thlb == 1]
-  
+
   # Compute biomass-weighted age per pixelGroup
   landStats <- standAges[pixID, on = "pixelGroup"]
   
@@ -330,39 +374,36 @@ harvestSpreadInputs <- function(pixelGroupMap,
   tooYoungPixels <- landStats[BweightedAge < minAgesToHarvest, pixelIndex]
   tooyoungPixelGroups <- as.vector(pixelGroupMap)[tooYoungPixels]
   
-  # Keep only eligible pixels
   landStats <- landStats[BweightedAge >= minAgesToHarvest]
   landStats[, blockId := terra::values(blockId)[pixelIndex]]
   landStats <- landStats[!is.na(pixelIndex)]
   
   landStats[pixelIndex %in% tooYoungPixels]
-  
+
   # Harvestable areas raster
   harvestableAreas <- terra::rast(thlb)
   harvestableAreas[] <- 0
   harvestableAreas[landStats$pixelIndex] <- spreadProb
   harvestableAreas[is.na(harvestableAreas)] <- 0
 
-  # Harvest loop: blocks -> species
   uniqueBlocks <- sort(unique(na.omit(terra::values(blockId))))
   uniqueBlocksChar <- as.character(uniqueBlocks)
-  # 
+  
   # Make sure target has names
   if (is.null(names(target))) names(target) <- as.character(seq_along(target))
   
   missingBlocks <- setdiff(uniqueBlocksChar, names(target))
-  if (length(missingBlocks) > 0) stop("Missing harvest targets: ", paste(missingBlocks, collapse = ", "))
+  if (length(missingBlocks) > 0) stop("Missing harvest target: ", paste(missingBlocks, collapse = ", "))
   
-  extraTargets <- setdiff(names(target), uniqueBlocksChar)
-  if (length(extraTargets) > 0) warning("Extra targets provided: ", paste(extraTargets, collapse = ", "))
-  
+  extratarget <- setdiff(names(target), uniqueBlocksChar)
+  if (length(extratarget) > 0) warning("Extra target provided: ", paste(extratarget, collapse = ", "))
+
   for (b in uniqueBlocks) {
-    
     pixelsInBlock <- landStats[blockId == b, pixelIndex]
     ht_block <- target[[as.character(b)]]
     if (length(pixelsInBlock) == 0 || is.null(ht_block)) next
     
-    #species_in_block <- unique(cohortData[pixelIndex %in% pixelsInBlock, speciesCode])
+    # species_in_block <- unique(cohortData[pixelIndex %in% pixelsInBlock, speciesCode])
     species_in_block <- unique(landStats[pixelIndex %in% pixelsInBlock, speciesCode])
     
     for (sp in species_in_block) {
@@ -383,15 +424,11 @@ harvestSpreadInputs <- function(pixelGroupMap,
       if (length(pix_sp) == 0) next
       
       # Number of pixels to harvest
-      # availablePixels <- pix_sp
-      # Remove already harvested pixels from consideration
       availablePixels <- pix_sp
-    
+      
       availablePixels <- availablePixels[!availablePixels %in% tooYoungPixels]
       
       nAvailable <- length(availablePixels)
-      if (length(availablePixels) == 0) next
-    
       
       # Target pixels
       # nPix <- round(ht * nAvailable)      
@@ -410,16 +447,16 @@ harvestSpreadInputs <- function(pixelGroupMap,
       initialCuts <- initialCuts[!initialCuts %in% tooYoungPixels]
       initialCuts <- initialCuts[!is.na(initialCuts)]
       if (length(initialCuts) == 0) next
-      
+  
+      # Harvestable raster for species
       # Make too-young pixels unavailable in raster
       harvestableAreas[tooYoungPixels] <- 0
       harvestableAreasWithSp <- harvestableAreas
-     
-      #unavailable <- setdiff(1:ncell(harvestableAreas), pix_sp)
+  
       unavailable <- which(!1:ncell(harvestableAreas) %in% pix_sp)
       harvestableAreasWithSp[unavailable] <- 0
       
-      # Now run the spread algorithm safely
+      # Spread algorithm
       iteration <- spread2(
         landscape = harvestableAreasWithSp,
         start = initialCuts,
@@ -434,12 +471,10 @@ harvestSpreadInputs <- function(pixelGroupMap,
       
       # Update rasters
       rstCurrentHarvest[iteration$pixels] <- 1
-      
       harvestableAreas[iteration$pixels] <- 0
-    
       
       illegalHarvest <- terra::values(rstCurrentHarvest) %in% tooYoungPixels
-     
+      
       if (any(iteration$pixels %in% tooYoungPixels)) {
         cat("WARNING: Some too-young pixels were harvested!\n")
         browser()
@@ -451,7 +486,7 @@ harvestSpreadInputs <- function(pixelGroupMap,
       spHarvest[iteration$pixels] <- 1
       speciesHarvestMaps[[sp]] <- if (is.null(speciesHarvestMaps[[sp]])) spHarvest else speciesHarvestMaps[[sp]] + spHarvest
       
-      
+      # ----------------------
       # Verbose live printing
       totalPixForSpecies <- sum(landStats[pixelIndex %in% pixelsInBlock, speciesCode] == sp)
       
@@ -463,7 +498,7 @@ harvestSpreadInputs <- function(pixelGroupMap,
       
       # Spatial feasibility (diagnostic only)
       maxFeasiblePixels <- feasibleMax
-      
+     
       # Observed
       observedHarvest_sp <- totalCut
       
@@ -485,13 +520,13 @@ harvestSpreadInputs <- function(pixelGroupMap,
           "Spatial / stochastic limitation"
         }
       } else ""
-      if (verbose) {
-        message(sprintf(
-          "Year %d | Block %s | Species %s | Obs %d | Exp %d | MaxFeas %d | %s",
-          year, b, sp, observedHarvest_sp, expectedHarvest_sp, maxFeasiblePixels, status_sp
-        ))
-        flush.console()
-      }
+      
+      message(sprintf(
+        "Year %d | Block %s | Species %s | Obs %d | Exp %d | MaxFeas %d | %s",
+        year, b, sp, observedHarvest_sp, expectedHarvest_sp, maxFeasiblePixels, status_sp
+      ))
+      flush.console()
+      
       
       # Update harvestStats table
       harvestStats <- rbind(
@@ -515,7 +550,6 @@ harvestSpreadInputs <- function(pixelGroupMap,
       )
     } # end species loop
   } # end block loop
-  
   
   # Harvest performance diagnostics (PIXEL-BASED, LANDIS-CONSISTENT)
   # Ensure harvestStats is a data.table
@@ -605,6 +639,7 @@ harvestSpreadInputs <- function(pixelGroupMap,
     terra::values(sim$pixelGroupMap) <- vals
     message("pixelGroupMap initialized from rasterToMatch.")
   }
+  
   #------------------------------------------------------------------------------
   
   # thlb build from other layers if missing
@@ -618,6 +653,7 @@ harvestSpreadInputs <- function(pixelGroupMap,
       to = sim$rasterToMatch,
       userTags = c(cacheTags, "dem")
     )
+    
     # Managed Forests of Canada #get map of forest management (2020) #values are 11 - long-term tenure, 
     # 12 - short-term tenure, 13 other, 20 Protected aras, #31 Federal reserve, 32 Indian Reserve, 33 Restricted,
     # 40 -Treaty and Settlement, 50 Private forests #100 is water #no harvest on 100 (water), 32 (indian reserve),
@@ -647,12 +683,7 @@ harvestSpreadInputs <- function(pixelGroupMap,
     
     sim$thlb <- thlb
   }
-  #------------------------------------------------------------------------------
   
-  if (!is.null(P(sim)$harvestTarget)) {
-    #sim$harvestTarget <- P(sim)$harvestTarget
-    sim$target <- P(sim)$harvestTarget
-  }
   #------------------------------------------------------------------------------
   if (!suppliedElsewhere("blockId", sim)) {
     
@@ -660,7 +691,7 @@ harvestSpreadInputs <- function(pixelGroupMap,
     blockId[] <- NA  # initialize
     
     validPixels <- which(!is.na(sim$thlb[]))  # pixels that can be harvested
-    N <- length(P(sim)$harvestTarget)
+    N <- P(sim)$nBlocks
     
     if (N == 1) {
       blockId[validPixels] <- 1
@@ -678,6 +709,7 @@ harvestSpreadInputs <- function(pixelGroupMap,
     blockId[] <- as.numeric(blockId[])
     sim$blockId <- blockId
   }
+  
   #------------------------------------------------------------------------------
   
   # Initialize timeSinceHarvest if missing
@@ -685,6 +717,5 @@ harvestSpreadInputs <- function(pixelGroupMap,
     sim$timeSinceHarvest <- rast(sim$rasterToMatch)
     values(sim$timeSinceHarvest) <- NA   # NA = never harvested
   }
-  
   return(sim)
 }
