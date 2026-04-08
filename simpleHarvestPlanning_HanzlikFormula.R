@@ -21,7 +21,7 @@ defineModule(sim, list(
   timeunit = "year",
   citation = list("citation.bib"),
   documentation = list("README.txt", "simpleHarvestPlanning.Rmd"),
-  reqdPkgs = list("PredictiveEcology/LandR@development (>= 1.1.5.9055)", 'sf', 'magrittr', 'fasterize', "terra"),
+  reqdPkgs = list("PredictiveEcology/LandR@development (>= 1.1.5.9099)", 'sf', "terra"),
   parameters = rbind(
     #defineParameter("paramName", "paramClass", value, min, max, "parameter description"),
     # Simulation/plotting controls
