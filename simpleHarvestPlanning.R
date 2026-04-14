@@ -653,7 +653,7 @@ harvestSpreadInputs <- function(pixelGroupMap,
   }
   
   #check if number of planningAreas matches those in harvestTargets
-  if (!global(simOut$planningArea, "max", na.rm = TRUE)[[1]] == length(simOut$harvestTarget)) {
+  if (!global(sim$planningArea, "max", na.rm = TRUE)[[1]] == length(sim$harvestTarget)) {
     stop("There is a mismatch between sim$planningArea and the areas defined in sim$harvestTargets")
   }
   
