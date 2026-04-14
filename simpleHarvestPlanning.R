@@ -333,7 +333,7 @@ harvestSpreadInputs <- function(pixelGroupMap,
   
   # Harvest loop: planningAreas -> species
   uniquePlanningAreas <- sort(unique(na.omit(terra::values(planningArea))))
-  uniquePlanningAreaChar <- as.character(uniquePlanningArea)
+  uniquePlanningAreaChar <- as.character(uniquePlanningAreas)
   
   # Make sure target has names
   if (is.null(names(target))) names(target) <- as.character(seq_along(target))
@@ -650,6 +650,11 @@ harvestSpreadInputs <- function(pixelGroupMap,
     
     planningArea[] <- as.numeric(planningArea[])
     sim$planningArea <- planningArea
+  }
+  
+  #check if number of planningAreas matches those in harvestTargets
+  if (!global(simOut$planningArea, "max", na.rm = TRUE)[[1]] == length(simOut$harvestTarget)) {
+    stop("There is a mismatch between sim$planningArea and the areas defined in sim$harvestTargets")
   }
   
   # Initialize timeSinceHarvest if missing
