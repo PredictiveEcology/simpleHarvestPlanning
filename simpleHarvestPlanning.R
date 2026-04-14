@@ -135,8 +135,7 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
         minAgesToHarvest = P(sim)$minAgesToHarvest,
         target = sim$harvestTarget,
         year = as.integer(time(sim)),
-        verbose = P(sim)$verbose,
-        harvestTarget = sim$harvestTarget
+        verbose = P(sim)$verbose
       )
       
       # annual harvest map (binary)
@@ -266,13 +265,16 @@ Init <- function(sim) {
   return(invisible(sim))
 }
 
-harvestSpreadInputs <- function(pixelGroupMap, cohortData, thlb, planningArea, spreadProb,
+harvestSpreadInputs <- function(pixelGroupMap,
+                                cohortData,
+                                thlb,
+                                planningArea,
+                                spreadProb,
                                 maxCutSize,
                                 minAgesToHarvest,
                                 target,
                                 year, 
-                                verbose,
-                                harvestTarget) {
+                                verbose) {
   
   # Initialize outputs
   rstCurrentHarvest  <- terra::rast(pixelGroupMap)
