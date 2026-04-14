@@ -34,8 +34,6 @@ defineModule(sim, list(
     # Harvest controls
     defineParameter("startTime", "numeric", start(sim), NA, NA,
                     desc = "Simulation time at which to initiate harvesting"),
-    defineParameter("harvestTarget", "list", NA,
-                    desc= "Harvest targets per plannign area (optionally per species within planning area)"),
     defineParameter("minAgesToHarvest", "numeric", 50, 1, NA,
                     desc =  "minimum ages of trees to harvest"),
     defineParameter("maxPatchSizetoHarvest", "numeric", 10, 1, NA,
@@ -51,6 +49,8 @@ defineModule(sim, list(
   inputObjects = rbind(
     expectsInput(objectName = "planningArea", objectClass = "SpatRaster",
                  desc = "Raster of planning area ids"),
+    expectsInput(objectName = "harvestTarget", objectClass = "list",
+                 desc = "List containing the harvest targets for each planningArea. Can optionally be defined per species in a planningArea"),
     expectsInput(objectName = "cohortData", objectClass = "data.table",
                  desc = "table with pixelGroup, age, species, and biomass of cohorts"),
     expectsInput(objectName = "cumulativeHarvestMap", objectClass = "SpatRaster",
@@ -133,7 +133,7 @@ doEvent.simpleHarvest = function(sim, eventTime, eventType) {
         spreadProb = P(sim)$spreadProb,
         maxCutSize = P(sim)$maxPatchSizetoHarvest,
         minAgesToHarvest = P(sim)$minAgesToHarvest,
-        target = P(sim)$harvestTarget,
+        target = sim$harvestTarget,
         year = as.integer(time(sim)),
         verbose = P(sim)$verbose
       )
@@ -623,9 +623,8 @@ harvestSpreadInputs <- function(pixelGroupMap,
     sim$thlb <- thlb
   }
   
-  if (!is.null(P(sim)$harvestTarget)) {
-    #sim$harvestTarget <- P(sim)$harvestTarget
-    sim$target <- P(sim)$harvestTarget
+  if (!suppliedElsewhere("harvestTarget", sim)) {
+    sim$harvestTarget <- list("1" = 0.01)
   }
   
   if (!suppliedElsewhere("planningArea", sim)) {
@@ -634,7 +633,7 @@ harvestSpreadInputs <- function(pixelGroupMap,
     planningArea[] <- NA  # initialize
     
     validPixels <- which(!is.na(sim$thlb[]))  # pixels that can be harvested
-    N <- length(P(sim)$harvestTarget)
+    N <- length(sim$harvestTarget)
     
     if (N == 1) {
       planningArea[validPixels] <- 1
