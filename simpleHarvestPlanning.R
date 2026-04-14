@@ -1,5 +1,5 @@
 defineModule(sim, list(
-  name = "simpleHarvest",
+  name = "simpleHarvestPlanning",
   description = paste("This is a very simplistic harvest module designed to interface with the LandR suite of modules",
                       "It will create a raster of harvested patches, but will not simulate actual harvest.",
                       "Should be paired with LandR_reforestation"),
@@ -9,12 +9,12 @@ defineModule(sim, list(
     person("Parvin", "Kalantari", email = "parvin.kalantari@nrcan-rncan.gc.ca", role = c("aut","ctb"))
   ),
   childModules = character(0),
-  version = list(SpaDES.core = "0.2.5.9008", simpleHarvest = "0.0.1"),
+  version = list(SpaDES.core = "0.2.5.9008", simpleHarvestPlanning = "0.0.1"),
   #spatialExtent = raster::extent(rep(NA_real_, 4)),
   timeframe = as.POSIXlt(c(NA, NA)),
   timeunit = "year",
   citation = list("citation.bib"),
-  documentation = list("README.txt", "simpleHarvest.Rmd"),
+  documentation = list("README.txt", "simpleHarvestPlanning.Rmd"),
   reqdPkgs = list("PredictiveEcology/LandR@development (>= 1.1.5.9055)", 'sf', 'magrittr', 'fasterize', "terra"),
   parameters = rbind(
     #defineParameter("paramName", "paramClass", value, min, max, "parameter description"),
@@ -88,15 +88,15 @@ defineModule(sim, list(
   
 ))
 #---------------------------------------------------------------------------------------------------
-doEvent.simpleHarvest = function(sim, eventTime, eventType) {
+doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
   switch(
     eventType,
     init = {
       sim <- Init(sim)
       
       # schedule future event(s)
-      sim <- scheduleEvent(sim, P(sim)$startTime, "simpleHarvest", "harvest")
-      sim <- scheduleEvent(sim, P(sim)$.plotInitialTime, "simpleHarvest", "plot")
+      sim <- scheduleEvent(sim, P(sim)$startTime, "simpleHarvestPlanning", "harvest")
+      sim <- scheduleEvent(sim, P(sim)$.plotInitialTime, "simpleHarvestPlanning", "plot")
     },
     
     plot = {
@@ -121,7 +121,7 @@ doEvent.simpleHarvest = function(sim, eventTime, eventType) {
         )
       }
       # Reschedule the next plot event
-      sim <- scheduleEvent(sim, time(sim) + P(sim)$.plotInterval, "simpleHarvest", "plot")
+      sim <- scheduleEvent(sim, time(sim) + P(sim)$.plotInterval, "simpleHarvestPlanning", "plot")
     },
     #---------------------------------------------------------------------------------------------------    
     harvest = {
@@ -204,9 +204,9 @@ doEvent.simpleHarvest = function(sim, eventTime, eventType) {
       planningArea_vals <- terra::values(sim$planningArea)
       sim$harvestSummary[, planningArea := planningArea_vals[pixelIndex]]
       # Schedule next harvest event
-      sim <- scheduleEvent(sim, time(sim) + 1, "simpleHarvest", "harvest")
+      sim <- scheduleEvent(sim, time(sim) + 1, "simpleHarvestPlanning", "harvest")
       # Schedule plot for current harvest
-      sim <- scheduleEvent(sim, time(sim), "simpleHarvest", "plot")
+      sim <- scheduleEvent(sim, time(sim), "simpleHarvestPlanning", "plot")
       
     },
     
