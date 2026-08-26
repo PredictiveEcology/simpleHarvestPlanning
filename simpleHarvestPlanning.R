@@ -42,7 +42,9 @@ defineModule(sim, list(
                     desc = paste("spread prob when determing harvest patch size. Larger spreadProb yields cuts closer to max.",
                                  "Exceeding 1 will likely result in harvest patches that are maximum size")),
     defineParameter("verbose", "numeric", 0, 0, 1,
-                    desc = "if 1, print more detailed messaging about harvest")
+                    desc = "if 1, print more detailed messaging about harvest"),
+    defineParameter("hanzlik", "logical", default = FALSE, NA, NA,
+                    desc = "toggles whether or not the Hanzlik formula is used to determine harvest.")
   ),
   
   # inputObjects
@@ -123,8 +125,30 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
       # Reschedule the next plot event
       sim <- scheduleEvent(sim, time(sim) + P(sim)$.plotInterval, "simpleHarvestPlanning", "plot")
     },
-    #---------------------------------------------------------------------------------------------------    
+    
     harvest = {
+      if (P(sim)$hanzlik == TRUE){
+        year <- as.integer(time(sim)) 
+        # Add pixel info to cohortData
+        cdLong <- LandR::addPixels2CohortData(sim$cohortData, sim$pixelGroupMap)
+        # Attach blockId from raster
+        cdLong[, planningArea := terra::values(sim$planningArea)[pixelIndex]]
+        
+        # --- Initialize Hanzlik target for each block
+        target <- list()
+        blocks <- sort(unique(na.omit(terra::values(sim$planningArea))))
+        
+        for (bv in blocks) {
+          Vm <- cdLong[planningArea == bv & age >= P(sim)$minAgesToHarvest,
+                       sum(B, na.rm = TRUE)]
+          if (Vm <= 0) {
+            target[[as.character(bv)]] <- 0
+          } else {
+            target[[as.character(bv)]] <- 1 / P(sim)$minAgesToHarvest
+          }
+        }
+      }
+      
       harvestSpread <- harvestSpreadInputs(
         pixelGroupMap = sim$pixelGroupMap,
         cohortData = sim$cohortData,
