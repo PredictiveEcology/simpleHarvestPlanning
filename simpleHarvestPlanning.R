@@ -135,16 +135,16 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
         cdLong[, planningArea := terra::values(sim$planningArea)[pixelIndex]]
         
         # --- Initialize Hanzlik target for each block
-        target <- list()
+        sim$harvestTarget <- list()
         blocks <- sort(unique(na.omit(terra::values(sim$planningArea))))
         
         for (bv in blocks) {
           Vm <- cdLong[planningArea == bv & age >= P(sim)$minAgesToHarvest,
                        sum(B, na.rm = TRUE)]
           if (Vm <= 0) {
-            target[[as.character(bv)]] <- 0
+            sim$harvestTarget[[as.character(bv)]] <- 0
           } else {
-            target[[as.character(bv)]] <- 1 / P(sim)$minAgesToHarvest
+            sim$harvestTarget[[as.character(bv)]] <- 1 / P(sim)$minAgesToHarvest
           }
         }
       }
