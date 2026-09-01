@@ -10,14 +10,12 @@ defineModule(sim, list(
   ),
   childModules = character(0),
   version = list(SpaDES.core = "0.2.5.9008", simpleHarvestPlanning = "0.0.1"),
-  #spatialExtent = raster::extent(rep(NA_real_, 4)),
   timeframe = as.POSIXlt(c(NA, NA)),
   timeunit = "year",
   citation = list("citation.bib"),
   documentation = list("README.txt", "simpleHarvestPlanning.Rmd"),
   reqdPkgs = list("PredictiveEcology/LandR@development (>= 1.1.5.9055)", 'sf', 'magrittr', 'fasterize', "terra"),
   parameters = rbind(
-    #defineParameter("paramName", "paramClass", value, min, max, "parameter description"),
     # Simulation/plotting controls
     defineParameter(".plotInitialTime", "numeric", start(sim), NA, NA,
                     "This is here for backwards compatibility. Please use `.plots`"),
@@ -176,13 +174,10 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
       # time since harvest
       sim$timeSinceHarvest <- sim$timeSinceHarvest + 1
       sim$timeSinceHarvest[sim$rstCurrentHarvest] <- 0
-      
       sim$speciesHarvestMaps <- harvestSpread$speciesHarvestMaps
       
       # Accumulate harvestStats across years
       sim$harvestStats <- rbind(sim$harvestStats, harvestSpread$harvestStats, fill = TRUE)
-      
-      # sim$harvestPerformance <- harvestSpread$harvestPerformance
       year <- as.integer(time(sim))  
       # Initialize once at start
       if (is.null(sim$harvestPerformance)) sim$harvestPerformance <- list()
@@ -192,8 +187,6 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
       
       # Identify harvested pixels
       harvested_vals <- as.vector(sim$rstCurrentHarvest)
-      # harvested_index <- which(harvested_vals > 0)
-      # sim$timeSinceHarvest[harvested_index] <- 0
       
       # Safeguard: only keep pixels with valid pixelGroup
       valid_pixels <- !is.na(terra::values(sim$pixelGroupMap))
@@ -394,18 +387,13 @@ harvestSpreadInputs <- function(pixelGroupMap,
       if (length(pix_sp) == 0) next
       
       # Number of pixels to harvest
-      # availablePixels <- pix_sp
       # Remove already harvested pixels from consideration
       availablePixels <- pix_sp
-      
       availablePixels <- availablePixels[!availablePixels %in% tooYoungPixels]
-      
       nAvailable <- length(availablePixels)
       if (length(availablePixels) == 0) next
       
-      
       # Target pixels
-      # nPix <- round(ht * nAvailable)      
       nPix <- ceiling(ht * nAvailable)
       if (nPix == 0) next
       
