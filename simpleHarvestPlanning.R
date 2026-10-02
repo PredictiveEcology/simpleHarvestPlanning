@@ -77,9 +77,9 @@ defineModule(sim, list(
                  desc = "Harvestable pixels mask"),
     expectsInput(objectName = "spatialConstraints", objectClass = "SpatRaster",
                  desc = paste("Optional. One layer per constraint (e.g. protected, plannedProtected), holding",
-                              "the rotation age that applies there (Inf = no harvest) and NA elsewhere.",
+                              "the rotation age that applies there, NA = no harvest, and 0 where it does not apply.",
                               "Where layers overlap the longest rotation wins; elsewhere `rotationAge` applies.",
-                              "Inf pixels are never harvested; with `hanzlik = TRUE`, each rotation age gets",
+                              "NA pixels are never harvested; with `hanzlik = TRUE`, each rotation age gets",
                               "its own AAC, target and pixel selection. If not supplied, there are no constraints.")),
     expectsInput(objectName ="timeSinceHarvest", objectClass = "SpatRaster",
                  desc = "map of time since last harvest; new harvests start at 0")
@@ -144,11 +144,11 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
     
     harvest = {
       # rotation age of each pixel: spatialConstraints where they apply, else the rotationAge
-      # param. Pixels with an Inf rotation are never harvested. With Hanzlik, each rotation age
+      # param. Pixels with an NA rotation are never harvested. With Hanzlik, each rotation age
       # is its own harvest: its own AAC, target and pixel selection.
       R <- if (is.na(P(sim)$rotationAge)) P(sim)$minAgesToHarvest else P(sim)$rotationAge
       rotationMap <- rotationAgeMap(sim$spatialConstraints, sim$pixelGroupMap, R)
-      thlb <- terra::mask(sim$thlb, rotationMap, maskvalues = Inf)
+      thlb <- terra::mask(sim$thlb, rotationMap)
       rotations <- if (isTRUE(P(sim)$hanzlik))
         sort(unique(terra::values(rotationMap)[terra::values(thlb) %in% 1])) else NA
       harvestSpread <- list()
@@ -626,14 +626,15 @@ hanzlikTarget <- function(cohortData, pixelGroupMap, planningArea, thlb, minAges
 }
 
 # Rotation age of each pixel. spatialConstraints has one layer per constraint (e.g. protected,
-# plannedProtected), each holding that constraint's rotation age where it applies (Inf = no
-# harvest) and NA elsewhere. Where constraints overlap the longest rotation wins; pixels in no
-# constraint get rotationAge.
+# plannedProtected), each holding that constraint's rotation age where it applies, NA for no
+# harvest, and 0 where it does not apply. Where constraints overlap, no harvest wins, then the
+# longest rotation; pixels in no constraint get rotationAge.
 rotationAgeMap <- function(spatialConstraints, template, rotationAge) {
   out <- terra::rast(template, nlyrs = 1)
   out[] <- rotationAge
   if (is.null(spatialConstraints)) return(out)
-  terra::cover(max(spatialConstraints, na.rm = TRUE), out)
+  longest <- terra::classify(max(spatialConstraints, na.rm = TRUE), cbind(0, NA))
+  terra::mask(terra::cover(longest, out), max(spatialConstraints))  # any NA layer: no harvest
 }
 
 # One year's harvest from the separate harvests of each rotation age (disjoint pixels).

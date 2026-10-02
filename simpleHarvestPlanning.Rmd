@@ -106,20 +106,22 @@ than the default minimum harvest age of 50. Using 50 for $R$ makes $V_m / R$ lar
 
 `spatialConstraints` (optional) sets other rotation ages in parts of the landscape, e.g. protected
 areas or planned protected areas. It is a `SpatRaster` with one layer per constraint. Each layer
-holds that constraint's rotation age where it applies and `NA` elsewhere. `Inf` means no harvest.
+holds that constraint's rotation age where it applies, `NA` for no harvest, and `0` where it does
+not apply.
 
 ```{r spatialConstraints-example}
 protected <- plannedProtected <- terra::rast(rasterToMatch)
-protected[] <- NA
-plannedProtected[] <- NA
-protected[parkPixels] <- Inf          # never harvested
+protected[] <- 0                      # 0: this constraint does not apply
+plannedProtected[] <- 0
+protected[parkPixels] <- NA           # never harvested
 plannedProtected[plannedPixels] <- 200
 spatialConstraints <- c(protected = protected, plannedProtected = plannedProtected)
 ```
 
-Where layers overlap, the longest rotation wins. Pixels in no constraint use `rotationAge`.
+Where layers overlap, no harvest wins, then the longest rotation. Pixels in no constraint use
+`rotationAge`.
 
-- `Inf` pixels are removed from the THLB, with or without Hanzlik.
+- `NA` pixels are removed from the THLB, with or without Hanzlik.
 - With `hanzlik = TRUE`, each rotation age in a planning area is a separate harvest: its own
   $V_m$, $I$, AAC and target, and its own pixel selection. A longer rotation is cut at its own,
   lower, rate. With `verbose = 1` there is one Hanzlik line per rotation age.
