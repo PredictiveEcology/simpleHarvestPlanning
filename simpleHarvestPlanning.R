@@ -42,7 +42,12 @@ defineModule(sim, list(
     defineParameter("verbose", "numeric", 0, 0, 1,
                     desc = "if 1, print more detailed messaging about harvest"),
     defineParameter("hanzlik", "logical", default = FALSE, NA, NA,
-                    desc = "toggles whether or not the Hanzlik formula is used to determine harvest."),
+                    desc = paste("toggles whether or not the Hanzlik formula is used to determine harvest:",
+                                 "annual cut = Vm / R + I, in biomass, per planningArea on the thlb.",
+                                 "Vm = biomass of cohorts aged `rotationAge` or more, R = `rotationAge`,",
+                                 "I = mean annual increment (B / age) of younger cohorts.")),
+    defineParameter("rotationAge", "numeric", NA, 1, NA,
+                    desc = "Rotation age (R) in the Hanzlik formula. NA uses `minAgesToHarvest`."),
     defineParameter("harvestType", "character", "partial", NA, NA,
                     desc = paste("What is cut in a harvested pixel. 'partial': only the cohorts of the species",
                                  "the pixel was selected under (its dominant species). 'clearcut': the cohorts",
@@ -134,21 +139,27 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
         year <- as.integer(time(sim)) 
         # Add pixel info to cohortData
         cdLong <- LandR::addPixels2CohortData(sim$cohortData, sim$pixelGroupMap)
-        # Attach blockId from raster
+        # Attach blockId from raster; only the harvestable land base counts
         cdLong[, planningArea := terra::values(sim$planningArea)[pixelIndex]]
-        
-        # --- Initialize Hanzlik target for each block
+        cdLong <- cdLong[terra::values(sim$thlb)[pixelIndex] %in% 1]
+
+        # --- Hanzlik: annual allowable cut = Vm / R + I (biomass). The module cuts a fraction of the
+        # eligible pixels, so the target is that cut over the biomass old enough to be harvested.
+        R <- if (is.na(P(sim)$rotationAge)) P(sim)$minAgesToHarvest else P(sim)$rotationAge
         sim$harvestTarget <- list()
         blocks <- sort(unique(na.omit(terra::values(sim$planningArea))))
-        
+
         for (bv in blocks) {
-          Vm <- cdLong[planningArea == bv & age >= P(sim)$minAgesToHarvest,
-                       sum(B, na.rm = TRUE)]
-          if (Vm <= 0) {
-            sim$harvestTarget[[as.character(bv)]] <- 0
-          } else {
-            sim$harvestTarget[[as.character(bv)]] <- 1 / P(sim)$minAgesToHarvest
-          }
+          cdB <- cdLong[planningArea == bv]
+          Vm <- cdB[age >= R, sum(B, na.rm = TRUE)]
+          I <- cdB[age > 0 & age < R, sum(B / age, na.rm = TRUE)]
+          Bharvestable <- cdB[age >= P(sim)$minAgesToHarvest, sum(B, na.rm = TRUE)]
+          aac <- Vm / R + I
+          sim$harvestTarget[[as.character(bv)]] <- if (Bharvestable > 0) min(1, aac / Bharvestable) else 0
+          if (P(sim)$verbose > 0)
+            message("Hanzlik, planningArea ", bv, ": Vm = ", round(Vm), ", R = ", R, ", I = ", round(I),
+                    ", AAC = ", round(aac), " (sum of B, g/m2 x pixels); target = ",
+                    signif(sim$harvestTarget[[as.character(bv)]], 3), " of harvestable biomass")
         }
       }
       
