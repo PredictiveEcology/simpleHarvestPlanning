@@ -2880,19 +2880,32 @@ the default of 50.</li>
 <div id="outputs" class="section level1">
 <h1>Outputs</h1>
 <ul>
-<li><code>rstCurrentHarvest</code>: this year’s harvest, 1 = harvested, 0 = not, <code>NA</code> = non-forest.</li>
-<li><code>speciesHarvestMaps</code>: the species to cut in each harvested pixel (see <a href="#harvest-type">Harvest type</a>).</li>
-<li><code>harvestSummary</code>: one row per year, pixel and cohort that is cut, with <code>speciesCode</code>, <code>age</code>,
+<li><p><code>rstCurrentHarvest</code>: this year’s harvest, 1 = harvested, 0 = not, <code>NA</code> = non-forest.</p></li>
+<li><p><code>speciesHarvestMaps</code>: the species to cut in each harvested pixel (see <a href="#harvest-type">Harvest type</a>).</p></li>
+<li><p><code>harvestSummary</code>: one row per year, pixel and cohort that is cut, with <code>speciesCode</code>, <code>age</code>,
 <code>B</code> and <code>planningArea</code>. Only the cohorts that are cut are listed, not every cohort in a harvested
 pixel, so <code>sum(B)</code> is the harvested biomass. Values are at the time of selection, one year before
-removal.</li>
-<li><code>cumulativeHarvestMap</code>: how many times each pixel has been harvested.</li>
-<li><code>timeSinceHarvest</code>: years since each pixel was last harvested (<code>NA</code> = never).</li>
-<li><code>harvestStats</code>, <code>harvestPerformance</code>: per year, planning area and species, how many pixels were
-expected and how many were cut.</li>
+removal.</p></li>
+<li><p><code>cumulativeHarvestMap</code>: how many times each pixel has been harvested.</p></li>
+<li><p><code>timeSinceHarvest</code>: years since each pixel was last harvested (<code>NA</code> = never).</p></li>
+<li><p><code>harvestStats</code>, <code>harvestPerformance</code>: per year, planning area and species, how many pixels were
+expected and how many were cut.</p></li>
+<li><p><code>hanzlikStats</code>: with <code>hanzlik = TRUE</code>, one row per year, planning area and rotation age, with
+<span class="math inline">\(V_m\)</span>, <span class="math inline">\(I\)</span>, the AAC, the harvestable biomass and the target.</p></li>
+</ul>
+<div id="summary-plots" class="section level2">
+<h2>Summary plots</h2>
+<p>When <code>.plots</code> is set, a <code>plotSummary</code> event at the end of the simulation writes four time series to
+<code>figures/simpleHarvestPlanning/</code>, in tonnes of aboveground biomass (B x pixel area):</p>
+<ul>
+<li><code>harvest_AAC_vs_cut</code>: the Hanzlik AAC and the biomass harvested, by planning area.</li>
+<li><code>harvest_biomass_by_species</code>: harvested biomass by species (coloured by <code>sppColorVect</code> if supplied).</li>
+<li><code>harvest_area</code>: area harvested, expected and actual.</li>
+<li><code>harvest_age</code>: biomass-weighted mean age of the cohorts cut, with the 10-90% range.</li>
 </ul>
 <p>If nothing can be cut in a year (a target of 0, or nothing old enough), the year runs and records
 nothing.</p>
+</div>
 </div>
 <div id="parameters" class="section level1">
 <h1>Parameters</h1>
@@ -3098,12 +3111,18 @@ nothing.</p>
 <td align="left">NA</td>
 </tr>
 <tr class="odd">
+<td align="left">sppColorVect</td>
+<td align="left">character</td>
+<td align="left">Optional. Colours by species code, for the summary plots.</td>
+<td align="left">NA</td>
+</tr>
+<tr class="even">
 <td align="left">spatialConstraints</td>
 <td align="left">SpatRaster</td>
 <td align="left">Optional. One layer per constraint (e.g. protected, plannedProtected), holding the rotation age that applies there, NA = no harvest, and 0 where it does not apply. Where layers overlap the longest rotation wins; elsewhere <code>rotationAge</code> applies. NA pixels are never harvested; with <code>hanzlik = TRUE</code>, each rotation age gets its own AAC, target and pixel selection. If not supplied, there are no constraints.</td>
 <td align="left">NA</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td align="left">timeSinceHarvest</td>
 <td align="left">SpatRaster</td>
 <td align="left">map of time since last harvest; new harvests start at 0</td>
@@ -3125,7 +3144,7 @@ areas.</li>
 <h1>Output objects</h1>
 <table>
 <colgroup>
-<col width="12%" />
+<col width="11%" />
 <col width="6%" />
 <col width="81%" />
 </colgroup>
@@ -3168,6 +3187,11 @@ areas.</li>
 <td align="left">List with observed vs expected harvest summaries per year and per planning area</td>
 </tr>
 <tr class="odd">
+<td align="left">hanzlikStats</td>
+<td align="left">data.table</td>
+<td align="left">With <code>hanzlik = TRUE</code>, one row per year, planningArea and rotation age: Vm, I, AAC and Bharvestable (sum of B in g/m2 over pixels) and the target.</td>
+</tr>
+<tr class="even">
 <td align="left">thlb</td>
 <td align="left">SpatRaster</td>
 <td align="left">Harvestable pixels mask</td>

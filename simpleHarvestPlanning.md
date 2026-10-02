@@ -158,6 +158,19 @@ it needs no setting of its own. Two things to know about that pairing:
 - `harvestStats`, `harvestPerformance`: per year, planning area and species, how many pixels were
   expected and how many were cut.
 
+- `hanzlikStats`: with `hanzlik = TRUE`, one row per year, planning area and rotation age, with
+  $V_m$, $I$, the AAC, the harvestable biomass and the target.
+
+## Summary plots
+
+When `.plots` is set, a `plotSummary` event at the end of the simulation writes four time series to
+`figures/simpleHarvestPlanning/`, in tonnes of aboveground biomass (B x pixel area):
+
+- `harvest_AAC_vs_cut`: the Hanzlik AAC and the biomass harvested, by planning area.
+- `harvest_biomass_by_species`: harvested biomass by species (coloured by `sppColorVect` if supplied).
+- `harvest_area`: area harvested, expected and actual.
+- `harvest_age`: biomass-weighted mean age of the cohorts cut, with the 10-90% range.
+
 If nothing can be cut in a year (a target of 0, or nothing old enough), the year runs and records
 nothing.
 
@@ -194,6 +207,7 @@ nothing.
 |rasterToMatch        |SpatRaster  |Template raster                                                                                                                                                                                                                                                                                                                                                                                                       |NA        |
 |studyArea            |SpatVector  |Study area polygon                                                                                                                                                                                                                                                                                                                                                                                                    |NA        |
 |thlb                 |SpatRaster  |Harvestable pixels mask                                                                                                                                                                                                                                                                                                                                                                                               |NA        |
+|sppColorVect         |character   |Optional. Colours by species code, for the summary plots.                                                                                                                                                                                                                                                                                                                                                             |NA        |
 |spatialConstraints   |SpatRaster  |Optional. One layer per constraint (e.g. protected, plannedProtected), holding the rotation age that applies there, NA = no harvest, and 0 where it does not apply. Where layers overlap the longest rotation wins; elsewhere `rotationAge` applies. NA pixels are never harvested; with `hanzlik = TRUE`, each rotation age gets its own AAC, target and pixel selection. If not supplied, there are no constraints. |NA        |
 |timeSinceHarvest     |SpatRaster  |map of time since last harvest; new harvests start at 0                                                                                                                                                                                                                                                                                                                                                               |NA        |
 
@@ -209,15 +223,16 @@ nothing.
 # Output objects
 
 
-|objectName           |objectClass |desc                                                                                                                                         |
-|:--------------------|:-----------|:--------------------------------------------------------------------------------------------------------------------------------------------|
-|rstCurrentHarvest    |SpatRaster  |Binary raster representing with 1 representing harvested pixels and 0 non-harvested forest. NA values represent non-forest                   |
-|cumulativeHarvestMap |SpatRaster  |cumulative harvest in raster form                                                                                                            |
-|harvestSummary       |data.table  |data.table with year and pixel index of harvested pixels                                                                                     |
-|harvestStats         |data.table  |data.table with storage for minCuts, totalCut, and target                                                                                    |
-|speciesHarvestMaps   |list        |List of binary SpatRasters representing harvested pixels per species. Each raster has 1 for harvested pixels and 0 for non-harvested pixels. |
-|harvestPerformance   |list        |List with observed vs expected harvest summaries per year and per planning area                                                              |
-|thlb                 |SpatRaster  |Harvestable pixels mask                                                                                                                      |
+|objectName           |objectClass |desc                                                                                                                                               |
+|:--------------------|:-----------|:--------------------------------------------------------------------------------------------------------------------------------------------------|
+|rstCurrentHarvest    |SpatRaster  |Binary raster representing with 1 representing harvested pixels and 0 non-harvested forest. NA values represent non-forest                         |
+|cumulativeHarvestMap |SpatRaster  |cumulative harvest in raster form                                                                                                                  |
+|harvestSummary       |data.table  |data.table with year and pixel index of harvested pixels                                                                                           |
+|harvestStats         |data.table  |data.table with storage for minCuts, totalCut, and target                                                                                          |
+|speciesHarvestMaps   |list        |List of binary SpatRasters representing harvested pixels per species. Each raster has 1 for harvested pixels and 0 for non-harvested pixels.       |
+|harvestPerformance   |list        |List with observed vs expected harvest summaries per year and per planning area                                                                    |
+|hanzlikStats         |data.table  |With `hanzlik = TRUE`, one row per year, planningArea and rotation age: Vm, I, AAC and Bharvestable (sum of B in g/m2 over pixels) and the target. |
+|thlb                 |SpatRaster  |Harvestable pixels mask                                                                                                                            |
 
 # Usage
 
