@@ -14,7 +14,8 @@ defineModule(sim, list(
   timeunit = "year",
   citation = list("citation.bib"),
   documentation = list("README.txt", "simpleHarvestPlanning.Rmd"),
-  reqdPkgs = list("PredictiveEcology/LandR@development (>= 1.1.5.9055)", 'sf', 'magrittr', 'fasterize', "terra"),
+  reqdPkgs = list("data.table", "PredictiveEcology/LandR@development (>= 1.1.5.9055)", 'sf', 'magrittr', 'fasterize', "terra",
+                  "reproducible", "SpaDES.tools"),
   parameters = rbind(
     # Simulation/plotting controls
     defineParameter(".plotInitialTime", "numeric", start(sim), NA, NA,
@@ -42,7 +43,12 @@ defineModule(sim, list(
     defineParameter("verbose", "numeric", 0, 0, 1,
                     desc = "if 1, print more detailed messaging about harvest"),
     defineParameter("hanzlik", "logical", default = FALSE, NA, NA,
-                    desc = "toggles whether or not the Hanzlik formula is used to determine harvest."),
+                    desc = paste("toggles whether or not the Hanzlik formula is used to determine harvest:",
+                                 "annual cut = Vm / R + I, in biomass, per planningArea on the thlb.",
+                                 "Vm = biomass of cohorts aged `rotationAge` or more, R = `rotationAge`,",
+                                 "I = mean annual increment (B / age) of younger cohorts.")),
+    defineParameter("rotationAge", "numeric", NA, 1, NA,
+                    desc = "Rotation age (R) in the Hanzlik formula. NA uses `minAgesToHarvest`."),
     defineParameter("harvestType", "character", "partial", NA, NA,
                     desc = paste("What is cut in a harvested pixel. 'partial': only the cohorts of the species",
                                  "the pixel was selected under (its dominant species). 'clearcut': the cohorts",
@@ -131,25 +137,15 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
     
     harvest = {
       if (P(sim)$hanzlik == TRUE){
-        year <- as.integer(time(sim)) 
-        # Add pixel info to cohortData
-        cdLong <- LandR::addPixels2CohortData(sim$cohortData, sim$pixelGroupMap)
-        # Attach blockId from raster
-        cdLong[, planningArea := terra::values(sim$planningArea)[pixelIndex]]
-        
-        # --- Initialize Hanzlik target for each block
-        sim$harvestTarget <- list()
-        blocks <- sort(unique(na.omit(terra::values(sim$planningArea))))
-        
-        for (bv in blocks) {
-          Vm <- cdLong[planningArea == bv & age >= P(sim)$minAgesToHarvest,
-                       sum(B, na.rm = TRUE)]
-          if (Vm <= 0) {
-            sim$harvestTarget[[as.character(bv)]] <- 0
-          } else {
-            sim$harvestTarget[[as.character(bv)]] <- 1 / P(sim)$minAgesToHarvest
-          }
-        }
+        sim$harvestTarget <- hanzlikTarget(
+          cohortData = sim$cohortData,
+          pixelGroupMap = sim$pixelGroupMap,
+          planningArea = sim$planningArea,
+          thlb = sim$thlb,
+          minAgesToHarvest = P(sim)$minAgesToHarvest,
+          rotationAge = P(sim)$rotationAge,
+          verbose = P(sim)$verbose
+        )
       }
       
       harvestSpread <- harvestSpreadInputs(
@@ -216,14 +212,10 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
       )
       
       harvestIndex <- harvestIndex[, .SD[1], by = .(year, pixelIndex)]
-      cdLong <- LandR::addPixels2CohortData(sim$cohortData, sim$pixelGroupMap)
-      
-      # Merge cohort data and append to harvestSummary; only the cohorts that are cut (species in
-      # speciesHarvestMaps for that pixel, old enough), not every cohort in a harvested pixel
-      spCut <- rbindlist(lapply(names(sim$speciesHarvestMaps), function(sp)
-        data.table(pixelIndex = which(as.vector(sim$speciesHarvestMaps[[sp]]) == 1), speciesCode = sp)))
-      cdCut <- cdLong[age >= P(sim)$minAgesToHarvest, .(pixelGroup, pixelIndex, speciesCode, age, B)]
-      cdCut <- cdCut[spCut, on = .(pixelIndex, speciesCode), nomatch = 0]
+
+      # Merge cohort data and append to harvestSummary; only the cohorts that are cut
+      cdCut <- cutCohorts(sim$cohortData, sim$pixelGroupMap, sim$speciesHarvestMaps,
+                          P(sim)$minAgesToHarvest)
       sim$harvestSummary <- rbind(
         sim$harvestSummary,
         merge(
@@ -525,8 +517,13 @@ harvestSpreadInputs <- function(pixelGroupMap,
       )
     } # end species loop
   } # end block loop
-  
-  
+
+  # nothing was cut (e.g. a target of 0, or nothing old enough): no diagnostics to compute
+  if (NROW(harvestStats) == 0) {
+    return(list(rstCurrentHarvest = rstCurrentHarvest, speciesHarvestMaps = speciesHarvestMaps,
+                harvestStats = harvestStats, harvestPerformance = list()))
+  }
+
   # Harvest performance diagnostics (PIXEL-BASED, LANDIS-CONSISTENT)
   # Ensure harvestStats is a data.table
   setDT(harvestStats)
@@ -580,6 +577,44 @@ harvestSpreadInputs <- function(pixelGroupMap,
   ))
 }
 
+# Hanzlik annual allowable cut, Vm / R + I, in biomass on the thlb of each planningArea.
+# Vm = B of cohorts aged R or more; I = mean annual increment (B / age) of younger cohorts.
+# The module cuts a share of the eligible pixels, so the target returned for each planningArea
+# is the cut over the biomass old enough to be harvested (capped at 1).
+hanzlikTarget <- function(cohortData, pixelGroupMap, planningArea, thlb, minAgesToHarvest,
+                          rotationAge = NA, verbose = 0) {
+  R <- if (is.na(rotationAge)) minAgesToHarvest else rotationAge
+  cdLong <- LandR::addPixels2CohortData(cohortData, pixelGroupMap)
+  cdLong[, planningArea := terra::values(planningArea)[pixelIndex]]
+  cdLong <- cdLong[terra::values(thlb)[pixelIndex] %in% 1]
+
+  target <- list()
+  for (bv in sort(unique(na.omit(terra::values(planningArea))))) {
+    cdB <- cdLong[planningArea == bv]
+    Vm <- cdB[age >= R, sum(B, na.rm = TRUE)]
+    I <- cdB[age > 0 & age < R, sum(B / age, na.rm = TRUE)]
+    Bharvestable <- cdB[age >= minAgesToHarvest, sum(B, na.rm = TRUE)]
+    aac <- Vm / R + I
+    target[[as.character(bv)]] <- if (Bharvestable > 0) min(1, aac / Bharvestable) else 0
+    if (verbose > 0)
+      message("Hanzlik, planningArea ", bv, ": Vm = ", round(Vm), ", R = ", R, ", I = ", round(I),
+              ", AAC = ", round(aac), " (sum of B, g/m2 x pixels); target = ",
+              signif(target[[as.character(bv)]], 3), " of harvestable biomass")
+  }
+  target
+}
+
+# The cohorts that are cut: in each pixel, the species set to 1 in speciesHarvestMaps, aged
+# minAgesToHarvest or more. Not every cohort in a harvested pixel.
+cutCohorts <- function(cohortData, pixelGroupMap, speciesHarvestMaps, minAgesToHarvest) {
+  cdLong <- LandR::addPixels2CohortData(cohortData, pixelGroupMap)
+  if (length(speciesHarvestMaps) == 0)
+    return(cdLong[0, .(pixelGroup, pixelIndex, speciesCode, age, B)])
+  spCut <- rbindlist(lapply(names(speciesHarvestMaps), function(sp)
+    data.table(pixelIndex = which(as.vector(speciesHarvestMaps[[sp]]) == 1), speciesCode = sp)))
+  cdCut <- cdLong[age >= minAgesToHarvest, .(pixelGroup, pixelIndex, speciesCode, age, B)]
+  cdCut[spCut, on = .(pixelIndex, speciesCode), nomatch = 0]
+}
 
 .inputObjects <- function(sim) {
   

@@ -1,381 +1,200 @@
-
-------
-
-title: "simpleHarvestPlanning" 
-author: "ieddy & pkalanta" 
-date:"`r format(Sys.time(), '%d %B %Y')`" \     #"15 August 2019" 
-output:
-pdf_document 
-
-toc: true toc_depth: 
-2 number_sections: 
-true ---
-
 ---
-editor_options: 
-  markdown: 
-    wrap: 72
+title: "simpleHarvestPlanning Manual"
+date: "Last updated: `r Sys.Date()`"
+output:
+  bookdown::html_document2:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: false
+    df_print: paged
+    keep_md: yes
+editor_options:
+  chunk_output_type: console
+always_allow_html: true
+---
 
----       
-```{r setup, include=FALSE}
-````   
+```{r setup-simpleHarvestPlanning, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, warning = FALSE, message = FALSE,
+                      results = "hold")
+```
 
-knitr::opts_chunk$set(
-  echo = TRUE,
-  message = FALSE,
-  warning = FALSE,
-  fig.align = "center"
-)
-
-:::{.rmdimportant}
-This documentation is work in progress.
-:::
-
-library(Require)
-
-Require(c("SpaDES.core", "PredictiveEcology/SpaDES.docs",'RCurl', 'XML', 'snow', 
-  'googledrive', 'httr2', "gert", "remotes", "terra", "data.table"),
-  upgrade = FALSE, install = FALSE)
+**Authors:** Ian Eddy, Parvin Kalantari. Module and documentation are work in progress.
 
 # Overview
 
-<!-- Provide an overview of what the module does / how to use the module. -->
+*simpleHarvestPlanning* is a simple, spatially explicit harvest planner for LandR. Each year it
+chooses which pixels to harvest and which species to cut in them, and records what that removes.
 
-<!-- Module documentation should be written so that others can use your module. -->
-<!-- This is a template for module documentation, and should be changed to reflect your module. -->
+It **does not remove anything itself**. Pair it with *LandRCBM_partialDisturbance*, which reads
+`speciesHarvestMaps`, removes the flagged cohorts from `cohortData` and replants the pixels.
 
-The `simpleHarvestPlanning` module simulates spatial forest harvesting within the
-LandR framework. It allocates harvest events across the landscape while
-attempting to meet annual harvest targets under user-defined constraints.
+What it decides:
 
-The module operates on species–age cohort data and management blocks, and
-selects eligible pixels based on minimum harvest age, timber harvesting land
-base (THLB), and stochastic spread rules. Harvest targets can be provided
-externely or calculated dynamically during the simulation.
+- **How much** to cut in each planning area: a fixed share per year, or Hanzlik's annual
+  allowable cut (see [Harvest targets](#targets)).
+- **Where** to cut: stands old enough, on the timber harvesting land base (THLB), grouped into
+  patches (see [How a harvest year works](#selection)).
+- **What** to cut in a harvested pixel: the dominant species only, or a clearcut of every species
+  (see [Harvest type](#harvest-type)).
 
-During each simulation year, `simpleHarvestPlanning` generates several outputs for
-analysis and visualization, including:
+# How a harvest year works {#selection}
 
-- **`rstCurrentHarvest`**: a raster identifying pixels harvested in the
-  current year.  
-- **`speciesHarvestMaps`**: species-specific rasters showing harvested
-  biomass by species.  
-- **`timeSinceHarvest`**: raster tracking the number of years since each
-  pixel was last harvested.  
-- **`cumulativeHarvestMap`**: raster recording the cumulative harvested area
-  or biomass over the simulation period.
+The `harvest` event runs every year from `startTime`.
 
-`simpleHarvestPlanning` is intended as a lightweight and flexible alternative to more
-complex harvest models, allowing users to explore management scenarios and
-test assumptions about harvest allocation and target-setting.
+1. If `hanzlik = TRUE`, the target for each planning area is recalculated from the current
+   landscape (see [Harvest targets](#targets)). Otherwise the `harvestTarget` input is used as given.
+2. Each pixel gets a stand age, the biomass-weighted mean age of its cohorts, and a dominant
+   species, the one with the most biomass. A pixel is eligible if it is on the THLB and its stand
+   age is at least `minAgesToHarvest`.
+3. Within each planning area, eligible pixels are grouped by dominant species. For each species
+   the module cuts `ceiling(target x eligible pixels)`. It does this by seeding patches and growing
+   them with `SpaDES.tools::spread2()`, up to `maxPatchSizetoHarvest` pixels each, with `spreadProb`
+   controlling how close patches get to that size.
+4. The harvest is written out (see [Outputs](#outputs)).
 
-## R Markdown
+# Harvest targets {#targets}
 
-R Markdown syntax allows R code, outputs, and figures to be rendered in the documentation.
+A target is the share of eligible pixels to cut each year in a planning area. It can also be set
+per species.
 
-For help writing in R Markdown, see http://rmarkdown.rstudio.com/.
+## Fixed targets
+
+With `hanzlik = FALSE` (the default), `harvestTarget` is used as given. It is a list named by
+planning area. Each element is either one number or a list of numbers by species, with
+`default` for the species not listed:
+
+```{r harvestTarget-example}
+harvestTarget <- list(
+  "1" = list(default = 0.005, Pinu_con = 0.01, Pice_gla = 0.02),
+  "2" = list(default = 0.02, Pinu_con = 0.01),
+  "3" = 0.01,   # every species in planning area 3
+  "4" = 0.008
+)
+```
+
+If `harvestTarget` and `planningArea` are not supplied, the module uses one planning area with a
+target of 0.01.
+
+## Hanzlik's annual allowable cut
+
+With `hanzlik = TRUE`, each year and for each planning area the module computes Hanzlik's annual
+allowable cut (AAC) from the current cohorts on the THLB:
+
+$$\text{AAC} = \frac{V_m}{R} + I$$
+
+- $V_m$ is the mature biomass: the B of all cohorts aged $R$ or more.
+- $R$ is the rotation age, the `rotationAge` parameter. If that is `NA` (the default),
+  `minAgesToHarvest` is used.
+- $I$ is the mean annual increment of the younger stands: the sum of $B / \text{age}$ over cohorts
+  younger than $R$.
+
+The first term spreads the mature biomass over one rotation. The second adds what the young
+forest grows each year.
+
+Biomass stands in for volume: B is in g/m², summed over pixels. Because the module cuts a share of
+pixels, the AAC is turned into a target by dividing it by the biomass old enough to harvest
+(cohorts aged `minAgesToHarvest` or more), capped at 1. On average the biomass of the pixels cut
+then equals the AAC. With `verbose = 1` the module prints $V_m$, $R$, $I$, the AAC and the target
+every year.
+
+Setting `rotationAge` separately matters. Boreal rotations are usually 80--120 years, much longer
+than the default minimum harvest age of 50. Using 50 for $R$ makes $V_m / R$ large.
+
+# Harvest type {#harvest-type}
+
+`harvestType` sets what is cut in a harvested pixel. In both cases only cohorts aged
+`minAgesToHarvest` or more are cut.
+
+| `harvestType` | What is cut | `speciesHarvestMaps` |
+|---|---|---|
+| `"partial"` (default) | Only the dominant species the pixel was selected under. Other species stay, so a mixed stand can be selected again in a later year for another species. | One raster per species, holding only the pixels selected under that species. |
+| `"clearcut"` | Every species. | One raster per species, each equal to `rstCurrentHarvest`. |
+
+*LandRCBM_partialDisturbance* removes, for each species, the cohorts in that species' raster, so
+it needs no setting of its own. Two things to know about that pairing:
+
+- It removes cohorts aged 50 to 500 by its own default, which matches `minAgesToHarvest` only at
+  the default of 50.
+- It runs before the harvest event in a year, so cohorts flagged in year *t* are removed in year
+  *t + 1*.
+
+# Outputs {#outputs}
+
+- `rstCurrentHarvest`: this year's harvest, 1 = harvested, 0 = not, `NA` = non-forest.
+- `speciesHarvestMaps`: the species to cut in each harvested pixel (see [Harvest type](#harvest-type)).
+- `harvestSummary`: one row per year, pixel and cohort that is cut, with `speciesCode`, `age`,
+  `B` and `planningArea`. Only the cohorts that are cut are listed, not every cohort in a harvested
+  pixel, so `sum(B)` is the harvested biomass. Values are at the time of selection, one year before
+  removal.
+- `cumulativeHarvestMap`: how many times each pixel has been harvested.
+- `timeSinceHarvest`: years since each pixel was last harvested (`NA` = never).
+- `harvestStats`, `harvestPerformance`: per year, planning area and species, how many pixels were
+  expected and how many were cut.
+
+If nothing can be cut in a year (a target of 0, or nothing old enough), the year runs and records
+nothing.
+
+# Parameters
+
+```{r moduleParams, echo = FALSE, eval = TRUE, results = "asis"}
+knitr::kable(SpaDES.core::moduleParams("simpleHarvestPlanning", ".."))
+```
+
+# Inputs
+
+```{r moduleInputs, echo = FALSE, eval = TRUE, results = "asis"}
+knitr::kable(SpaDES.core::moduleInputs("simpleHarvestPlanning", ".."))
+```
+
+`rasterToMatch` is required. When missing, the others are created:
+
+- `thlb` from the Managed Forests of Canada map (2017): long- and short-term tenure and private
+  forest (classes 11, 12, 50) are harvestable.
+- `planningArea` as one area over the THLB, or as equal splits when `harvestTarget` has several
+  areas.
+- `harvestTarget` as `list("1" = 0.01)`.
+- `timeSinceHarvest` as all `NA`.
+
+# Output objects
+
+```{r moduleOutputs, echo = FALSE, eval = TRUE, results = "asis"}
+knitr::kable(SpaDES.core::moduleOutputs("simpleHarvestPlanning", ".."))
+```
 
 # Usage
 
-```{r module_usage}
-library(SpaDES)
-# 1. Set paths
-setPaths(modulePath = file.path("/home/ieddy/Git"),
- inputPath = file.path("../../temp"),
- outputPath = file.path("../../temp"),
- cachePath = file.path("../../temp"))
+A clearcut with a Hanzlik cut and a 100-year rotation, alongside the LandR biomass modules:
 
-getPaths() # shows where the 4 relevant paths are
-
-# 2. Define simulation times
-times = list(start = 2011, end = 2040)
-
-# 3. Define parameters
-# parameters <- list(
-#   #.progress = list(type = "text", interval = 1), # for a progress bar
-#   ## If there are further modules, each can have its own set of parameters:
-#   #module1 = list(param1 = value1, param2 = value2),
-#   #module2 = list(param1 = value1, param2 = value2)
-# )
-parameters = list(
-    globals = list(
-      sppEquivCol = "LandR", 
-      .plots = "png",
-      .plotInterval = 1,
-      .useCache = c(".inputObjects", "init")
-    ), 
-      simpleHarvestPlanning = list(
-    .useCache      = ".inputObjects",
-    # harvestTarget  = c("1" = 0.05, "2" = 0.02, "3"= 0.01, "4"= 0.008)
-                           harvestTarget = list(
-                           "1" = list(
-                             default = 0.005,           # default target for block 1
-                             Pinu_con = 0.01,          # species-specific override
-                             Pice_gla = 0.02
-                           ),
-                           "2" = list(
-                             default = 0.02,
-                             Pinu_con = 0.01
-                           ),
-                           "3" = 0.01,                 # same target for all species in block 3
-                           "4" = 0.008                 # same target for all species in block 4
-                         )
-    ),
-
-  )
-  # other module parameters can be added similarly
-)
-
-# 4. List of modules to load
- modules = c(
-    "PredictiveEcology/Biomass_borealDataPrep@development",
-    "PredictiveEcology/Biomass_core@development",
-    "ianmseddy/LandR_reforestation@parvindev",
-    "PredictiveEcology/scfm@development",
-    "PredictiveEcology/Biomass_regeneration@development",
-    "pkalanta/simpleHarvest@parvintesting"
+```{r usage}
+out <- SpaDES.project::setupProject(
+  modules = c("PredictiveEcology/Biomass_speciesData@development",
+              "PredictiveEcology/Biomass_borealDataPrep@development",
+              "PredictiveEcology/Biomass_core@development",
+              "PredictiveEcology/simpleHarvestPlanning@development",
+              "camillegiuliano/LandRCBM_partialDisturbance@main"),
+  times = list(start = 2020, end = 2030),
+  params = list(
+    simpleHarvestPlanning = list(hanzlik = TRUE, rotationAge = 100,
+                                 harvestType = "clearcut", verbose = 1)
   ),
- 
-# 5. Optional pre-existing objects
-objects <- list()  
- 
-inputs <- list()
-
-# 6. Initialize simulation
-mySim <- simInit(
-  times   = times,
-  params  = parameters,
-  modules = modules,
-  objects = objects
+  studyArea = studyArea  # an sf polygon
 )
-
- outputs = rbind(
-    data.frame(objectName = "cohortData", saveTime = times$start:times$end),
-    data.frame(objectName = "pixelGroupMap", saveTime = times$start:times$end)
-  ),
-
-mySim <- simInit(times = times, params = parameters, modules = modules,
-     objects = objects)
-
-mySimOut <- spades(mySim)
+sim <- SpaDES.core::simInitAndSpades2(out)
+sim$harvestSummary[, .(pixels = data.table::uniqueN(pixelIndex), B = sum(B)), by = year]
 ```
-````
 
-# Events
+# Tests
 
-The `simpleHarvestPlanning` module responds to scheduled simulation events and
-performs harvest-related actions when triggered. Events are typically
-scheduled on an annual timestep.
+`tests/testthat/` holds unit tests for the target, selection and summary functions, and short
+simulations on a 4 x 4 landscape with every input supplied, so nothing is downloaded. The
+`testthat-module` GitHub workflow runs them on every pull request, using the shared workflow in
+[PredictiveEcology/actions](https://github.com/PredictiveEcology/actions). To run them locally
+from the module directory, do what that workflow does:
 
-## Harvest event
-
-The main harvest event is executed once per simulation year. During this
-event, the module:
-
-1.  Identifies eligible pixels based on minimum harvest age and the
-    timber harvesting land base (THLB).
-2.  Computes block-level harvest targets, either from predefined inputs
-    or dynamically based on current landscape conditions.
-3.  Allocates harvest spatially using a stochastic spread algorithm,
-    subject to maximum patch size constraints.
-4.  Updates cohort ages and biomass for harvested pixels.
-5.  Records realized harvest statistics for the current year.
-
-This event is responsible for the majority of the module’s functionality
-and drives landscape change related to forest harvesting.
-
-## Initialization event (if applicable)
-
-If an initialization event is defined, it is executed at the beginning
-of the simulation. This event prepares required data structures,
-initializes summary tables, and performs basic validation of inputs.
-
-## Output / summary event (optional)
-
-Some configurations of the `simpleHarvestPlanning` module include an output or
-summary event, which runs after harvest allocation each year. This event
-collects harvest data for later analysis and visualization, including:
-
--   **Annual harvest statistics**, aggregated across blocks and/or
-    species, reporting harvested biomass, area, or pixel counts.\
--   **Spatial harvest maps**, such as:
-    -   `rstCurrentHarvest`: pixels harvested in the current year\
-    -   `speciesHarvestMaps`: species-specific harvested biomass maps\
-    -   `timeSinceHarvest`: raster tracking years since last harvest\
-    -   `cumulativeHarvestMap`: raster of cumulative harvested area or
-        biomass
-
-These outputs allow users to monitor harvest performance, validate
-targets, and visualize both temporal and spatial patterns of harvesting
-across the landscape.
-
-## Plotting
-
-The `simpleHarvesPlanning` module can produce summary plots to support
-inspection and validation of harvest behavior during and after a
-simulation.
-
-Typical plots include:
-
--   **Annual harvested volume**, showing total realized harvest per year
-    and allowing comparison with target harvest levels.
--   **Harvested area through time**, summarizing the spatial extent of
-    harvest events across simulation years.
--   **Block-level harvest summaries**, illustrating how harvest is
-    distributed among management blocks.
--   **Species-level harvest summaries**, showing the contribution of
-    individual species to total harvested volume.
-
-When enabled, spatial plots may also be produced to visualize the
-location and configuration of harvested patches for selected years.
-
-These plots are intended for diagnostic and exploratory purposes and can
-be used to assess whether harvest targets are met and whether spatial
-patterns are consistent with model assumptions.
-
-## Saving
-
-The `simpleHarvestPlanning` module saves harvest-related outputs to support
-downstream analysis, validation, and visualization.
-
-Saved objects typically include:
-
--   **Annual harvest summary tables**, containing realized harvest
-    volume and/or harvested area by year.
--   **Block-level harvest statistics**, summarizing harvest allocation
-    within management blocks.
--   **Species-level harvest statistics**, reporting harvested volume by
-    species and year.
--   **Spatial harvest outputs** (optional), identifying pixels or
-    patches that were harvested in each simulation year.
-
-These outputs are stored within the simulation object for access by
-subsequent modules and may also be written to disk depending on user
-configuration. Saved outputs are intended to be lightweight and
-reproducible, enabling users to reconstruct harvest dynamics without
-rerunning the full simulation.
-
-# Data dependencies
-
-The `simpleHarvestPlanning` module requires the following data inputs to run
-correctly:
-
--   **`cohortData`** (data.frame / data.table)\
-    Contains species–age cohort information for each pixel. Used to
-    identify harvestable cohorts, compute biomass, and update
-    post-harvest conditions.\
-    **Required.**
-
--   **`pixelGroupMap`** (raster or matrix)\
-    Maps each pixel to a management block or group. Used to allocate
-    harvest spatially according to block-level rules.\
-    **Required.**
-
--   **`thlb`** (raster / logical)\
-    Timber harvesting land base, indicating where harvest is allowed.
-    Pixels outside the THLB are excluded from harvest.\
-    **Required.**
-
--   **`blockId`** (vector or field)\
-    Identifiers for management blocks. Used to compute block-level
-    harvest targets and summaries.\
-    **Required.**
-
--   **`rotationAge`** (list or named vector)\
-    Rotation age for each block, used to calculate dynamic harvest
-    targets.\
-    **Required.**
-
--   **Optional inputs** may include:
-
-    -   **Predefined harvest targets** (if dynamic targets are not
-        used)\
-    -   **Spatial masks** for inaccessible areas\
-    -   **Historical harvest maps** for comparison or validation
-
-## Input data
-
-How to obtain input data, and a description of the data required by the
-module. If `sourceURL` is specified,
-`downloadData("simpleHarvestPlanning", "path/to/modules/dir")` may be
-sufficient.
-
-| Name | Class | Description | Source |
-|------|-------|-------------|--------|
-
-| blockId \| SpatRaster \| Raster of block ids \|
-| cohortData \| data.table \| table with pixelGroup, age, species, and biomass of cohorts \|
-| cumulativeHarvestMap \| SpatRaster \| cumulative harvest in raster form \|
-| pixelGroupMap \| SpatRaster \| Raster of pixelGroup locations \|
-| rasterToMatch \| SpatRaster \| Template raster" \|
-| studyArea \| SpatVector \| Study area polygon \|url = "<https://sis.agr.gc.ca/cansis/nsdb/ecostrat/region/ecoregion_shp.zip>"\|
-| thlb \| SpatRaster \| Harvestable pixels mask \| url= "<https://drive.google.com/file/d/14puAtns8oTZDtvWzpQ6_FgK4MbozGZFK/view?usp>", targetFile = "gtopo30Canada.tif"\|
-| timeSinceHarvest \| SpatRaster \| map of time since last harvest; new harvests start at 0 \|
-
-## Output data
-
-The `simpleHarvestPlanning` module returns a list containing four main outputs:
-
-### 1. `rstCurrentHarvest`
-
--   **Type:** raster\
--   **Contents:** Marks the pixels that were harvested in the current
-    simulation year. Typically, harvested pixels have values \> 0, while
-    non-harvested pixels are `NA`.\
--   **Purpose:** Useful for spatial visualization of harvest events and
-    integration with other landscape analyses.
-
-### 2. `speciesHarvestMaps`
-
--   **Type:** list of rasters (one per species)\
--   **Contents:** For each species, maps of harvested pixels showing
-    species-specific biomass removal.\
--   **Purpose:** Allows analysis of species-level harvest impacts across
-    the landscape.
-
-### 3. `harvestStats`
-
--   **Type:** data.table / data.frame\
--   **Contents:** Tabular summary of harvest events for the current
-    year, including:
-    -   `blockId` or pixel group
-    -   `speciesCode`
-    -   `harvested biomass` or area\
--   **Purpose:** Provides block- and species-level summaries for
-    reporting and validation.
-
-### 4. `harvestPerformance`
-
--   **Type:** data.table / data.frame\
--   **Contents:** Tracks how well the module met harvest targets,
-    including:
-    -   planned vs realized harvest
-    -   discrepancies relative to feasible maximum\
--   **Purpose:** Used for validation, performance evaluation, and
-    debugging.
-
-# Links to other modules
-
-The `simpleHarvestPlanning` module interacts with other modules through its
-input requirements and outputs:
-
-### Input linkages
-
--   **Forest succession / cohort dynamics modules**: provide
-    `cohortData` required to identify harvestable cohorts.\
--   **Landscape / landbase modules**: provide `thlb` and `pixelGroupMap`
-    to define harvestable areas and management blocks.
-
-### Output linkages
-
--   **Habitat modules**: use `rstCurrentHarvest` and
-    `speciesHarvestMaps` to update habitat quality for wildlife.\
--   **Carbon or biomass modules**: use `harvestStats` and
-    `harvestPerformance` to quantify biomass removal or carbon flux.\
--   **Visualization modules**: use spatial outputs to generate maps of
-    harvested areas.
-
-These linkages allow `simpleHarvestPlanning` to integrate with the simulation
-workflow, ensuring that harvest events influence downstream ecological
-processes and that the module can be informed by upstream landscape
-dynamics.
+```{r run-tests}
+pkg <- SpaDES.core::convertToPackage("simpleHarvestPlanning", path = "..",
+                                     buildDocuments = TRUE,
+                                     destinationPath = tempfile("testthat-module"))
+testthat::test_local(pkg)
+```
