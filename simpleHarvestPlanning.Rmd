@@ -32,7 +32,8 @@ It **does not remove anything itself**. Pair it with *LandRCBM_partialDisturbanc
 What it decides:
 
 - **How much** to cut in each planning area: a fixed share per year, or Hanzlik's annual
-  allowable cut (see [Harvest targets](#targets)).
+  allowable cut (see [Harvest targets](#targets)), with other rotation ages, or none, where
+  `spatialConstraints` apply (see [Spatial constraints](#constraints)).
 - **Where** to cut: stands old enough, on the timber harvesting land base (THLB), grouped into
   patches (see [How a harvest year works](#selection)).
 - **What** to cut in a harvested pixel: the dominant species only, or a clearcut of every species
@@ -100,6 +101,30 @@ every year.
 
 Setting `rotationAge` separately matters. Boreal rotations are usually 80--120 years, much longer
 than the default minimum harvest age of 50. Using 50 for $R$ makes $V_m / R$ large.
+
+## Spatial constraints {#constraints}
+
+`spatialConstraints` (optional) sets other rotation ages in parts of the landscape, e.g. protected
+areas or planned protected areas. It is a `SpatRaster` with one layer per constraint. Each layer
+holds that constraint's rotation age where it applies and `NA` elsewhere. `Inf` means no harvest.
+
+```{r spatialConstraints-example}
+protected <- plannedProtected <- terra::rast(rasterToMatch)
+protected[] <- NA
+plannedProtected[] <- NA
+protected[parkPixels] <- Inf          # never harvested
+plannedProtected[plannedPixels] <- 200
+spatialConstraints <- c(protected = protected, plannedProtected = plannedProtected)
+```
+
+Where layers overlap, the longest rotation wins. Pixels in no constraint use `rotationAge`.
+
+- `Inf` pixels are removed from the THLB, with or without Hanzlik.
+- With `hanzlik = TRUE`, each rotation age in a planning area is a separate harvest: its own
+  $V_m$, $I$, AAC and target, and its own pixel selection. A longer rotation is cut at its own,
+  lower, rate. With `verbose = 1` there is one Hanzlik line per rotation age.
+
+`harvestStats` and `harvestPerformance` then have one set of rows per rotation age.
 
 # Harvest type {#harvest-type}
 
