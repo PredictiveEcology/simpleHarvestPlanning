@@ -29,7 +29,8 @@ It **does not remove anything itself**. Pair it with *LandRCBM_partialDisturbanc
 What it decides:
 
 - **How much** to cut in each planning area: a fixed share per year, or Hanzlik's annual
-  allowable cut (see [Harvest targets](#targets)).
+  allowable cut (see [Harvest targets](#targets)), with other rotation ages, or none, where
+  `spatialConstraints` apply (see [Spatial constraints](#constraints)).
 - **Where** to cut: stands old enough, on the timber harvesting land base (THLB), grouped into
   patches (see [How a harvest year works](#selection)).
 - **What** to cut in a harvested pixel: the dominant species only, or a clearcut of every species
@@ -99,6 +100,31 @@ every year.
 Setting `rotationAge` separately matters. Boreal rotations are usually 80--120 years, much longer
 than the default minimum harvest age of 50. Using 50 for $R$ makes $V_m / R$ large.
 
+## Spatial constraints {#constraints}
+
+`spatialConstraints` (optional) sets other rotation ages in parts of the landscape, e.g. protected
+areas or planned protected areas. It is a `SpatRaster` with one layer per constraint. Each layer
+holds that constraint's rotation age where it applies and `NA` elsewhere. `Inf` means no harvest.
+
+
+``` r
+protected <- plannedProtected <- terra::rast(rasterToMatch)
+protected[] <- NA
+plannedProtected[] <- NA
+protected[parkPixels] <- Inf          # never harvested
+plannedProtected[plannedPixels] <- 200
+spatialConstraints <- c(protected = protected, plannedProtected = plannedProtected)
+```
+
+Where layers overlap, the longest rotation wins. Pixels in no constraint use `rotationAge`.
+
+- `Inf` pixels are removed from the THLB, with or without Hanzlik.
+- With `hanzlik = TRUE`, each rotation age in a planning area is a separate harvest: its own
+  $V_m$, $I$, AAC and target, and its own pixel selection. A longer rotation is cut at its own,
+  lower, rate. With `verbose = 1` there is one Hanzlik line per rotation age.
+
+`harvestStats` and `harvestPerformance` then have one set of rows per rotation age.
+
 # Harvest type {#harvest-type}
 
 `harvestType` sets what is cut in a harvested pixel. In both cases only cohorts aged
@@ -150,23 +176,24 @@ nothing.
 |spreadProb            |numeric    |1       |0.01 |1   |spread prob when determing harvest patch size. Larger spreadProb yields cuts closer to max. Exceeding 1 will likely result in harvest patches that are maximum size                                                                                                           |
 |verbose               |numeric    |0       |0    |1   |if 1, print more detailed messaging about harvest                                                                                                                                                                                                                             |
 |hanzlik               |logical    |FALSE   |NA   |NA  |toggles whether or not the Hanzlik formula is used to determine harvest: annual cut = Vm / R + I, in biomass, per planningArea on the thlb. Vm = biomass of cohorts aged `rotationAge` or more, R = `rotationAge`, I = mean annual increment (B / age) of younger cohorts.    |
-|rotationAge           |numeric    |NA      |1    |NA  |Rotation age (R) in the Hanzlik formula. NA uses `minAgesToHarvest`.                                                                                                                                                                                                          |
+|rotationAge           |numeric    |NA      |1    |NA  |Rotation age (R) in the Hanzlik formula. NA uses `minAgesToHarvest`. `spatialConstraints` override it where they apply.                                                                                                                                                       |
 |harvestType           |character  |partial |NA   |NA  |What is cut in a harvested pixel. 'partial': only the cohorts of the species the pixel was selected under (its dominant species). 'clearcut': the cohorts of every species. Either way, only cohorts aged `minAgesToHarvest` or more. Expressed through `speciesHarvestMaps`. |
 
 # Inputs
 
 
-|objectName           |objectClass |desc                                                                                                               |sourceURL |
-|:--------------------|:-----------|:------------------------------------------------------------------------------------------------------------------|:---------|
-|planningArea         |SpatRaster  |Raster of planning area ids                                                                                        |NA        |
-|harvestTarget        |list        |List containing the harvest targets for each planningArea. Can optionally be defined per species in a planningArea |NA        |
-|cohortData           |data.table  |table with pixelGroup, age, species, and biomass of cohorts                                                        |NA        |
-|cumulativeHarvestMap |SpatRaster  |cumulative harvest in raster form                                                                                  |NA        |
-|pixelGroupMap        |SpatRaster  |Raster of pixelGroup locations                                                                                     |NA        |
-|rasterToMatch        |SpatRaster  |Template raster                                                                                                    |NA        |
-|studyArea            |SpatVector  |Study area polygon                                                                                                 |NA        |
-|thlb                 |SpatRaster  |Harvestable pixels mask                                                                                            |NA        |
-|timeSinceHarvest     |SpatRaster  |map of time since last harvest; new harvests start at 0                                                            |NA        |
+|objectName           |objectClass |desc                                                                                                                                                                                                                                                                                                                                                                                                       |sourceURL |
+|:--------------------|:-----------|:----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:---------|
+|planningArea         |SpatRaster  |Raster of planning area ids                                                                                                                                                                                                                                                                                                                                                                                |NA        |
+|harvestTarget        |list        |List containing the harvest targets for each planningArea. Can optionally be defined per species in a planningArea                                                                                                                                                                                                                                                                                         |NA        |
+|cohortData           |data.table  |table with pixelGroup, age, species, and biomass of cohorts                                                                                                                                                                                                                                                                                                                                                |NA        |
+|cumulativeHarvestMap |SpatRaster  |cumulative harvest in raster form                                                                                                                                                                                                                                                                                                                                                                          |NA        |
+|pixelGroupMap        |SpatRaster  |Raster of pixelGroup locations                                                                                                                                                                                                                                                                                                                                                                             |NA        |
+|rasterToMatch        |SpatRaster  |Template raster                                                                                                                                                                                                                                                                                                                                                                                            |NA        |
+|studyArea            |SpatVector  |Study area polygon                                                                                                                                                                                                                                                                                                                                                                                         |NA        |
+|thlb                 |SpatRaster  |Harvestable pixels mask                                                                                                                                                                                                                                                                                                                                                                                    |NA        |
+|spatialConstraints   |SpatRaster  |Optional. One layer per constraint (e.g. protected, plannedProtected), holding the rotation age that applies there (Inf = no harvest) and NA elsewhere. Where layers overlap the longest rotation wins; elsewhere `rotationAge` applies. Inf pixels are never harvested; with `hanzlik = TRUE`, each rotation age gets its own AAC, target and pixel selection. If not supplied, there are no constraints. |NA        |
+|timeSinceHarvest     |SpatRaster  |map of time since last harvest; new harvests start at 0                                                                                                                                                                                                                                                                                                                                                    |NA        |
 
 `rasterToMatch` is required. When missing, the others are created:
 

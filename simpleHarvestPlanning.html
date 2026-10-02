@@ -2751,7 +2751,8 @@ chooses which pixels to harvest and which species to cut in them, and records wh
 <p>What it decides:</p>
 <ul>
 <li><strong>How much</strong> to cut in each planning area: a fixed share per year, or Hanzlik’s annual
-allowable cut (see <a href="#targets">Harvest targets</a>).</li>
+allowable cut (see <a href="#targets">Harvest targets</a>), with other rotation ages, or none, where
+<code>spatialConstraints</code> apply (see <a href="#constraints">Spatial constraints</a>).</li>
 <li><strong>Where</strong> to cut: stands old enough, on the timber harvesting land base (THLB), grouped into
 patches (see <a href="#selection">How a harvest year works</a>).</li>
 <li><strong>What</strong> to cut in a harvested pixel: the dominant species only, or a clearcut of every species
@@ -2813,6 +2814,26 @@ then equals the AAC. With <code>verbose = 1</code> the module prints <span class
 every year.</p>
 <p>Setting <code>rotationAge</code> separately matters. Boreal rotations are usually 80–120 years, much longer
 than the default minimum harvest age of 50. Using 50 for <span class="math inline">\(R\)</span> makes <span class="math inline">\(V_m / R\)</span> large.</p>
+</div>
+<div id="constraints" class="section level2">
+<h2>Spatial constraints</h2>
+<p><code>spatialConstraints</code> (optional) sets other rotation ages in parts of the landscape, e.g. protected
+areas or planned protected areas. It is a <code>SpatRaster</code> with one layer per constraint. Each layer
+holds that constraint’s rotation age where it applies and <code>NA</code> elsewhere. <code>Inf</code> means no harvest.</p>
+<pre class="r"><code>protected &lt;- plannedProtected &lt;- terra::rast(rasterToMatch)
+protected[] &lt;- NA
+plannedProtected[] &lt;- NA
+protected[parkPixels] &lt;- Inf          # never harvested
+plannedProtected[plannedPixels] &lt;- 200
+spatialConstraints &lt;- c(protected = protected, plannedProtected = plannedProtected)</code></pre>
+<p>Where layers overlap, the longest rotation wins. Pixels in no constraint use <code>rotationAge</code>.</p>
+<ul>
+<li><code>Inf</code> pixels are removed from the THLB, with or without Hanzlik.</li>
+<li>With <code>hanzlik = TRUE</code>, each rotation age in a planning area is a separate harvest: its own
+<span class="math inline">\(V_m\)</span>, <span class="math inline">\(I\)</span>, AAC and target, and its own pixel selection. A longer rotation is cut at its own,
+lower, rate. With <code>verbose = 1</code> there is one Hanzlik line per rotation age.</li>
+</ul>
+<p><code>harvestStats</code> and <code>harvestPerformance</code> then have one set of rows per rotation age.</p>
 </div>
 </div>
 <div id="harvest-type" class="section level1">
@@ -2995,7 +3016,7 @@ nothing.</p>
 <td align="left">NA</td>
 <td align="left">1</td>
 <td align="left">NA</td>
-<td align="left">Rotation age (R) in the Hanzlik formula. NA uses <code>minAgesToHarvest</code>.</td>
+<td align="left">Rotation age (R) in the Hanzlik formula. NA uses <code>minAgesToHarvest</code>. <code>spatialConstraints</code> override it where they apply.</td>
 </tr>
 <tr class="even">
 <td align="left">harvestType</td>
@@ -3012,10 +3033,10 @@ nothing.</p>
 <h1>Inputs</h1>
 <table>
 <colgroup>
-<col width="13%" />
-<col width="7%" />
-<col width="72%" />
-<col width="6%" />
+<col width="4%" />
+<col width="2%" />
+<col width="90%" />
+<col width="2%" />
 </colgroup>
 <thead>
 <tr class="header">
@@ -3075,6 +3096,12 @@ nothing.</p>
 <td align="left">NA</td>
 </tr>
 <tr class="odd">
+<td align="left">spatialConstraints</td>
+<td align="left">SpatRaster</td>
+<td align="left">Optional. One layer per constraint (e.g. protected, plannedProtected), holding the rotation age that applies there (Inf = no harvest) and NA elsewhere. Where layers overlap the longest rotation wins; elsewhere <code>rotationAge</code> applies. Inf pixels are never harvested; with <code>hanzlik = TRUE</code>, each rotation age gets its own AAC, target and pixel selection. If not supplied, there are no constraints.</td>
+<td align="left">NA</td>
+</tr>
+<tr class="even">
 <td align="left">timeSinceHarvest</td>
 <td align="left">SpatRaster</td>
 <td align="left">map of time since last harvest; new harvests start at 0</td>
