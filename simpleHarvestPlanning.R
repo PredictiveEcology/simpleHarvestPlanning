@@ -42,7 +42,12 @@ defineModule(sim, list(
     defineParameter("verbose", "numeric", 0, 0, 1,
                     desc = "if 1, print more detailed messaging about harvest"),
     defineParameter("hanzlik", "logical", default = FALSE, NA, NA,
-                    desc = "toggles whether or not the Hanzlik formula is used to determine harvest.")
+                    desc = "toggles whether or not the Hanzlik formula is used to determine harvest."),
+    defineParameter("harvestType", "character", "partial", NA, NA,
+                    desc = paste("What is cut in a harvested pixel. 'partial': only the cohorts of the species",
+                                 "the pixel was selected under (its dominant species). 'clearcut': the cohorts",
+                                 "of every species. Either way, only cohorts aged `minAgesToHarvest` or more.",
+                                 "Expressed through `speciesHarvestMaps`."))
   ),
   
   # inputObjects
@@ -175,6 +180,13 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
       sim$timeSinceHarvest <- sim$timeSinceHarvest + 1
       sim$timeSinceHarvest[sim$rstCurrentHarvest] <- 0
       sim$speciesHarvestMaps <- harvestSpread$speciesHarvestMaps
+      if (identical(P(sim)$harvestType, "clearcut")) {
+        # every species is cut wherever any pixel is harvested
+        spp <- unique(as.character(sim$cohortData$speciesCode))
+        sim$speciesHarvestMaps <- setNames(rep(list(sim$rstCurrentHarvest), length(spp)), spp)
+      } else if (!identical(P(sim)$harvestType, "partial")) {
+        stop("harvestType must be 'partial' or 'clearcut'")
+      }
       
       # Accumulate harvestStats across years
       sim$harvestStats <- rbind(sim$harvestStats, harvestSpread$harvestStats, fill = TRUE)
@@ -206,15 +218,18 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
       harvestIndex <- harvestIndex[, .SD[1], by = .(year, pixelIndex)]
       cdLong <- LandR::addPixels2CohortData(sim$cohortData, sim$pixelGroupMap)
       
-      # Merge cohort data and append to harvestSummary; only cohorts old enough to be cut, so
-      # the table holds what a clearcut removes, not every cohort in a harvested pixel
+      # Merge cohort data and append to harvestSummary; only the cohorts that are cut (species in
+      # speciesHarvestMaps for that pixel, old enough), not every cohort in a harvested pixel
+      spCut <- rbindlist(lapply(names(sim$speciesHarvestMaps), function(sp)
+        data.table(pixelIndex = which(as.vector(sim$speciesHarvestMaps[[sp]]) == 1), speciesCode = sp)))
+      cdCut <- cdLong[age >= P(sim)$minAgesToHarvest, .(pixelGroup, pixelIndex, speciesCode, age, B)]
+      cdCut <- cdCut[spCut, on = .(pixelIndex, speciesCode), nomatch = 0]
       sim$harvestSummary <- rbind(
         sim$harvestSummary,
         merge(
           harvestIndex,
-          cdLong[age >= P(sim)$minAgesToHarvest, .(pixelGroup, pixelIndex, speciesCode, age, B)],
-          by = c("pixelGroup", "pixelIndex"),
-          all.x = TRUE
+          cdCut,
+          by = c("pixelGroup", "pixelIndex")
         ),
         fill = TRUE
       )
