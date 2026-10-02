@@ -2819,16 +2819,18 @@ than the default minimum harvest age of 50. Using 50 for <span class="math inlin
 <h2>Spatial constraints</h2>
 <p><code>spatialConstraints</code> (optional) sets other rotation ages in parts of the landscape, e.g. protected
 areas or planned protected areas. It is a <code>SpatRaster</code> with one layer per constraint. Each layer
-holds that constraint’s rotation age where it applies and <code>NA</code> elsewhere. <code>Inf</code> means no harvest.</p>
+holds that constraint’s rotation age where it applies, <code>NA</code> for no harvest, and <code>0</code> where it does
+not apply.</p>
 <pre class="r"><code>protected &lt;- plannedProtected &lt;- terra::rast(rasterToMatch)
-protected[] &lt;- NA
-plannedProtected[] &lt;- NA
-protected[parkPixels] &lt;- Inf          # never harvested
+protected[] &lt;- 0                      # 0: this constraint does not apply
+plannedProtected[] &lt;- 0
+protected[parkPixels] &lt;- NA           # never harvested
 plannedProtected[plannedPixels] &lt;- 200
 spatialConstraints &lt;- c(protected = protected, plannedProtected = plannedProtected)</code></pre>
-<p>Where layers overlap, the longest rotation wins. Pixels in no constraint use <code>rotationAge</code>.</p>
+<p>Where layers overlap, no harvest wins, then the longest rotation. Pixels in no constraint use
+<code>rotationAge</code>.</p>
 <ul>
-<li><code>Inf</code> pixels are removed from the THLB, with or without Hanzlik.</li>
+<li><code>NA</code> pixels are removed from the THLB, with or without Hanzlik.</li>
 <li>With <code>hanzlik = TRUE</code>, each rotation age in a planning area is a separate harvest: its own
 <span class="math inline">\(V_m\)</span>, <span class="math inline">\(I\)</span>, AAC and target, and its own pixel selection. A longer rotation is cut at its own,
 lower, rate. With <code>verbose = 1</code> there is one Hanzlik line per rotation age.</li>
@@ -3098,7 +3100,7 @@ nothing.</p>
 <tr class="odd">
 <td align="left">spatialConstraints</td>
 <td align="left">SpatRaster</td>
-<td align="left">Optional. One layer per constraint (e.g. protected, plannedProtected), holding the rotation age that applies there (Inf = no harvest) and NA elsewhere. Where layers overlap the longest rotation wins; elsewhere <code>rotationAge</code> applies. Inf pixels are never harvested; with <code>hanzlik = TRUE</code>, each rotation age gets its own AAC, target and pixel selection. If not supplied, there are no constraints.</td>
+<td align="left">Optional. One layer per constraint (e.g. protected, plannedProtected), holding the rotation age that applies there, NA = no harvest, and 0 where it does not apply. Where layers overlap the longest rotation wins; elsewhere <code>rotationAge</code> applies. NA pixels are never harvested; with <code>hanzlik = TRUE</code>, each rotation age gets its own AAC, target and pixel selection. If not supplied, there are no constraints.</td>
 <td align="left">NA</td>
 </tr>
 <tr class="even">
