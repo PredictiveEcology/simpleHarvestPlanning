@@ -206,12 +206,13 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
       harvestIndex <- harvestIndex[, .SD[1], by = .(year, pixelIndex)]
       cdLong <- LandR::addPixels2CohortData(sim$cohortData, sim$pixelGroupMap)
       
-      # Merge cohort data and append to harvestSummary
+      # Merge cohort data and append to harvestSummary; only cohorts old enough to be cut, so
+      # the table holds what a clearcut removes, not every cohort in a harvested pixel
       sim$harvestSummary <- rbind(
         sim$harvestSummary,
         merge(
           harvestIndex,
-          cdLong[, .(pixelGroup, pixelIndex, speciesCode, age, B)],
+          cdLong[age >= P(sim)$minAgesToHarvest, .(pixelGroup, pixelIndex, speciesCode, age, B)],
           by = c("pixelGroup", "pixelIndex"),
           all.x = TRUE
         ),
