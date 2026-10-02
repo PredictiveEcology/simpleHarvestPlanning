@@ -15,7 +15,7 @@ defineModule(sim, list(
   citation = list("citation.bib"),
   documentation = list("README.txt", "simpleHarvestPlanning.Rmd"),
   reqdPkgs = list("data.table", "PredictiveEcology/LandR@development (>= 1.1.5.9055)", 'sf', 'magrittr', 'fasterize', "terra",
-                  "reproducible", "SpaDES.tools"),
+                  "reproducible", "SpaDES.tools", "ggplot2"),
   parameters = rbind(
     # Simulation/plotting controls
     defineParameter(".plotInitialTime", "numeric", start(sim), NA, NA,
@@ -75,6 +75,8 @@ defineModule(sim, list(
                  desc = "Study area polygon"),
     expectsInput(objectName = "thlb", objectClass = "SpatRaster",
                  desc = "Harvestable pixels mask"),
+    expectsInput(objectName = "sppColorVect", objectClass = "character",
+                 desc = "Optional. Colours by species code, for the summary plots."),
     expectsInput(objectName = "spatialConstraints", objectClass = "SpatRaster",
                  desc = paste("Optional. One layer per constraint (e.g. protected, plannedProtected), holding",
                               "the rotation age that applies there, NA = no harvest, and 0 where it does not apply.",
@@ -101,6 +103,9 @@ defineModule(sim, list(
                           Each raster has 1 for harvested pixels and 0 for non-harvested pixels."),
     createsOutput(objectName = "harvestPerformance", objectClass = "list",
                   desc = "List with observed vs expected harvest summaries per year and per planning area"),
+    createsOutput(objectName = "hanzlikStats", objectClass = "data.table",
+                  desc = paste("With `hanzlik = TRUE`, one row per year, planningArea and rotation age:",
+                               "Vm, I, AAC and Bharvestable (sum of B in g/m2 over pixels) and the target.")),
     createsOutput(objectName = "thlb", objectClass = "SpatRaster",
                   desc = "Harvestable pixels mask"))
   
@@ -115,6 +120,26 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
       # schedule future event(s)
       sim <- scheduleEvent(sim, P(sim)$startTime, "simpleHarvestPlanning", "harvest")
       sim <- scheduleEvent(sim, P(sim)$.plotInitialTime, "simpleHarvestPlanning", "plot")
+      if (anyPlotting(P(sim)$.plots))
+        sim <- scheduleEvent(sim, end(sim), "simpleHarvestPlanning", "plotSummary",
+                             eventPriority = .last())
+    },
+
+    plotSummary = {
+      # time series of the whole run: AAC and harvest, by species, area, age
+      ts <- harvestTimeSeries(sim$harvestSummary, sim$hanzlikStats, sim$harvestStats,
+                              pixelArea = prod(terra::res(sim$pixelGroupMap)))
+      plotArgs <- list(types = P(sim)$.plots, path = figurePath(sim),
+                       ggsaveArgs = list(width = 7, height = 5, units = "in", dpi = 300))
+      if (NROW(ts$aac))
+        do.call(Plots, c(list(ts$aac, fn = plotHarvestAAC, filename = "harvest_AAC_vs_cut"), plotArgs))
+      if (NROW(ts$species))
+        do.call(Plots, c(list(ts$species, fn = plotHarvestSpecies, cols = sim$sppColorVect,
+                              filename = "harvest_biomass_by_species"), plotArgs))
+      if (NROW(ts$area))
+        do.call(Plots, c(list(ts$area, fn = plotHarvestArea, filename = "harvest_area"), plotArgs))
+      if (NROW(ts$age))
+        do.call(Plots, c(list(ts$age, fn = plotHarvestAge, filename = "harvest_age"), plotArgs))
     },
     
     plot = {
@@ -165,6 +190,8 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
             rotationAge = rot,
             verbose = P(sim)$verbose
           )
+          sim$hanzlikStats <- rbind(sim$hanzlikStats,
+                                    cbind(year = as.integer(time(sim)), attr(sim$harvestTarget, "stats")))
         }
 
         harvestSpread[[length(harvestSpread) + 1]] <- harvestSpreadInputs(
@@ -610,6 +637,7 @@ hanzlikTarget <- function(cohortData, pixelGroupMap, planningArea, thlb, minAges
   cdLong <- cdLong[terra::values(thlb)[pixelIndex] %in% 1]
 
   target <- list()
+  stats <- list()
   for (bv in sort(unique(na.omit(terra::values(planningArea))))) {
     cdB <- cdLong[planningArea == bv]
     Vm <- cdB[age >= R, sum(B, na.rm = TRUE)]
@@ -617,11 +645,16 @@ hanzlikTarget <- function(cohortData, pixelGroupMap, planningArea, thlb, minAges
     Bharvestable <- cdB[age >= minAgesToHarvest, sum(B, na.rm = TRUE)]
     aac <- Vm / R + I
     target[[as.character(bv)]] <- if (Bharvestable > 0) min(1, aac / Bharvestable) else 0
+    stats[[length(stats) + 1]] <- data.table(planningArea = bv, rotationAge = R, Vm = Vm, I = I,
+                                             AAC = aac, Bharvestable = Bharvestable,
+                                             target = target[[as.character(bv)]])
     if (verbose > 0)
       message("Hanzlik, planningArea ", bv, ": Vm = ", round(Vm), ", R = ", R, ", I = ", round(I),
               ", AAC = ", round(aac), " (sum of B, g/m2 x pixels); target = ",
               signif(target[[as.character(bv)]], 3), " of harvestable biomass")
   }
+  # the parts of the AAC, for hanzlikStats
+  attr(target, "stats") <- rbindlist(stats)
   target
 }
 
@@ -668,6 +701,67 @@ cutCohorts <- function(cohortData, pixelGroupMap, speciesHarvestMaps, minAgesToH
     data.table(pixelIndex = which(as.vector(speciesHarvestMaps[[sp]]) == 1), speciesCode = sp)))
   cdCut <- cdLong[age >= minAgesToHarvest, .(pixelGroup, pixelIndex, speciesCode, age, B)]
   cdCut[spCut, on = .(pixelIndex, speciesCode), nomatch = 0]
+}
+
+# Time series for the summary plots. B is g/m2 per pixel, so tonnes = B x pixelArea (m2) / 1e6.
+# Returns a list of data.tables: aac (year, planningArea, what, t), species (year, speciesCode, t),
+# area (year, what, ha) and age (year, mean, q10, q90 of the age of the cohorts cut, B-weighted mean).
+harvestTimeSeries <- function(harvestSummary, hanzlikStats, harvestStats, pixelArea) {
+  toT <- pixelArea / 1e6
+  hs <- as.data.table(harvestSummary)
+  if (NROW(hs)) hs[, B := as.numeric(B)]  # integer sums overflow on large landscapes
+  cut <- if (NROW(hs)) hs[, list(t = sum(B, na.rm = TRUE) * toT), by = c("year", "planningArea")] else NULL
+  aac <- if (NROW(hanzlikStats)) as.data.table(hanzlikStats)[, list(t = sum(AAC) * toT),
+                                                              by = c("year", "planningArea")] else NULL
+  aac <- rbind(if (!is.null(aac)) aac[, what := "AAC (Hanzlik)"],
+               if (!is.null(cut)) cut[, what := "Harvested"])
+  species <- if (NROW(hs)) hs[, list(t = sum(B, na.rm = TRUE) * toT),
+                              by = list(year, speciesCode = as.character(speciesCode))] else NULL
+  area <- if (NROW(harvestStats))
+    data.table::melt(as.data.table(harvestStats)[, list(Expected = sum(expectedHarvest_sp) * pixelArea / 1e4,
+                                                        Harvested = sum(observedHarvest_sp) * pixelArea / 1e4),
+                                                 by = "year"],
+                     id.vars = "year", variable.name = "what", value.name = "ha") else NULL
+  age <- if (NROW(hs)) hs[, list(mean = sum(age * B) / sum(B), q10 = stats::quantile(age, 0.1),
+                                 q90 = stats::quantile(age, 0.9)), by = "year"] else NULL
+  list(aac = aac, species = species, area = area, age = age)
+}
+
+plotHarvestAAC <- function(dt) {
+  gg <- ggplot2::ggplot(dt, ggplot2::aes(year, t, colour = what)) +
+    ggplot2::geom_line() +
+    ggplot2::labs(x = "Year", y = "Aboveground biomass (t)", colour = NULL,
+                  title = "Annual allowable cut and harvest") +
+    ggplot2::theme_bw()
+  if (data.table::uniqueN(dt$planningArea) > 1)
+    gg <- gg + ggplot2::facet_wrap(~ planningArea, labeller = ggplot2::label_both)
+  gg
+}
+
+plotHarvestSpecies <- function(dt, cols = NULL) {
+  gg <- ggplot2::ggplot(dt, ggplot2::aes(year, t, fill = speciesCode)) +
+    ggplot2::geom_area() +
+    ggplot2::labs(x = "Year", y = "Aboveground biomass harvested (t)", fill = "Species",
+                  title = "Harvested biomass by species") +
+    ggplot2::theme_bw()
+  if (!is.null(cols)) gg <- gg + ggplot2::scale_fill_manual(values = cols)
+  gg
+}
+
+plotHarvestArea <- function(dt) {
+  ggplot2::ggplot(dt, ggplot2::aes(year, ha, colour = what)) +
+    ggplot2::geom_line() +
+    ggplot2::labs(x = "Year", y = "Area (ha)", colour = NULL, title = "Area harvested") +
+    ggplot2::theme_bw()
+}
+
+plotHarvestAge <- function(dt) {
+  ggplot2::ggplot(dt, ggplot2::aes(year, mean)) +
+    ggplot2::geom_ribbon(ggplot2::aes(ymin = q10, ymax = q90), alpha = 0.3) +
+    ggplot2::geom_line() +
+    ggplot2::labs(x = "Year", y = "Age (years)",
+                  title = "Age of harvested cohorts", subtitle = "Biomass-weighted mean; band: 10-90%") +
+    ggplot2::theme_bw()
 }
 
 .inputObjects <- function(sim) {
