@@ -367,19 +367,19 @@ harvestSpreadInputs <- function(pixelGroupMap,
     ht_planningArea <- target[[as.character(b)]]
     if (length(pixelsInPlanningArea) == 0 || is.null(ht_planningArea)) next
     
-    species_in_planningArea <- unique(landStats[pixelIndex %in% pixelsInPlanningArea, speciesCode])
+    species_in_planningArea <- unique(as.character(
+      landStats[pixelIndex %in% pixelsInPlanningArea, speciesCode]))
+    species_in_planningArea <- species_in_planningArea[!is.na(species_in_planningArea)]
     
     for (sp in species_in_planningArea) {
-      ht <- NA_real_
       if (is.list(ht_planningArea)) {
         ht <- ht_planningArea[[sp]]           # species-specific
         if (is.null(ht)) ht <- ht_planningArea$default
-        ht <- as.numeric(ht[1])        # assign numeric back to ht
       } else {
-        ht <- as.numeric(ht_planningArea)     # assign numeric back to ht
+        ht <- ht_planningArea
       }
-      
-      if (is.na(ht) || ht <= 0) next
+      ht <- suppressWarnings(as.numeric(unlist(ht)))[1]
+      if (length(ht) == 0 || is.na(ht) || ht <= 0) next
       
       # Pixels for this species
       pix_sp <- unique(landStats[pixelIndex %in% pixelsInPlanningArea & speciesCode %in% sp, pixelIndex])
