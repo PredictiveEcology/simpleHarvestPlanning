@@ -9,12 +9,13 @@ defineModule(sim, list(
     person("Parvin", "Kalantari", email = "parvin.kalantari@nrcan-rncan.gc.ca", role = c("aut","ctb"))
   ),
   childModules = character(0),
-  version = list(SpaDES.core = "0.2.5.9008", simpleHarvestPlanning = "0.0.1"),
+  version = list(SpaDES.core = "0.2.5.9008", simpleHarvestPlanning = "0.1.0"),
   timeframe = as.POSIXlt(c(NA, NA)),
   timeunit = "year",
   citation = list("citation.bib"),
   documentation = list("README.txt", "simpleHarvestPlanning.Rmd"),
-  reqdPkgs = list("PredictiveEcology/LandR@development (>= 1.1.5.9055)", 'sf', 'magrittr', 'fasterize', "terra"),
+  reqdPkgs = list("data.table", "PredictiveEcology/LandR@development (>= 1.1.5.9055)", 'sf', 'magrittr', 'fasterize', "terra",
+                  "reproducible", "SpaDES.tools", "ggplot2"),
   parameters = rbind(
     # Simulation/plotting controls
     defineParameter(".plotInitialTime", "numeric", start(sim), NA, NA,
@@ -42,7 +43,18 @@ defineModule(sim, list(
     defineParameter("verbose", "numeric", 0, 0, 1,
                     desc = "if 1, print more detailed messaging about harvest"),
     defineParameter("hanzlik", "logical", default = FALSE, NA, NA,
-                    desc = "toggles whether or not the Hanzlik formula is used to determine harvest.")
+                    desc = paste("toggles whether or not the Hanzlik formula is used to determine harvest:",
+                                 "annual cut = Vm / R + I, in biomass, per planningArea on the thlb.",
+                                 "Vm = biomass of cohorts aged `rotationAge` or more, R = `rotationAge`,",
+                                 "I = mean annual increment (B / age) of younger cohorts.")),
+    defineParameter("rotationAge", "numeric", NA, 1, NA,
+                    desc = paste("Rotation age (R) in the Hanzlik formula. NA uses `minAgesToHarvest`.",
+                                 "`spatialConstraints` override it where they apply.")),
+    defineParameter("harvestType", "character", "partial", NA, NA,
+                    desc = paste("What is cut in a harvested pixel. 'partial': only the cohorts of the species",
+                                 "the pixel was selected under (its dominant species). 'clearcut': the cohorts",
+                                 "of every species. Either way, only cohorts aged `minAgesToHarvest` or more.",
+                                 "Expressed through `speciesHarvestMaps`."))
   ),
   
   # inputObjects
@@ -63,6 +75,14 @@ defineModule(sim, list(
                  desc = "Study area polygon"),
     expectsInput(objectName = "thlb", objectClass = "SpatRaster",
                  desc = "Harvestable pixels mask"),
+    expectsInput(objectName = "sppColorVect", objectClass = "character",
+                 desc = "Optional. Colours by species code, for the summary plots."),
+    expectsInput(objectName = "spatialConstraints", objectClass = "SpatRaster",
+                 desc = paste("Optional. One layer per constraint (e.g. protected, plannedProtected), holding",
+                              "the rotation age that applies there, NA = no harvest, and 0 where it does not apply.",
+                              "Where layers overlap the longest rotation wins; elsewhere `rotationAge` applies.",
+                              "NA pixels are never harvested; with `hanzlik = TRUE`, each rotation age gets",
+                              "its own AAC, target and pixel selection. If not supplied, there are no constraints.")),
     expectsInput(objectName ="timeSinceHarvest", objectClass = "SpatRaster",
                  desc = "map of time since last harvest; new harvests start at 0")
   ),
@@ -83,6 +103,9 @@ defineModule(sim, list(
                           Each raster has 1 for harvested pixels and 0 for non-harvested pixels."),
     createsOutput(objectName = "harvestPerformance", objectClass = "list",
                   desc = "List with observed vs expected harvest summaries per year and per planning area"),
+    createsOutput(objectName = "hanzlikStats", objectClass = "data.table",
+                  desc = paste("With `hanzlik = TRUE`, one row per year, planningArea and rotation age:",
+                               "Vm, I, AAC and Bharvestable (sum of B in g/m2 over pixels) and the target.")),
     createsOutput(objectName = "thlb", objectClass = "SpatRaster",
                   desc = "Harvestable pixels mask"))
   
@@ -97,6 +120,26 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
       # schedule future event(s)
       sim <- scheduleEvent(sim, P(sim)$startTime, "simpleHarvestPlanning", "harvest")
       sim <- scheduleEvent(sim, P(sim)$.plotInitialTime, "simpleHarvestPlanning", "plot")
+      if (anyPlotting(P(sim)$.plots))
+        sim <- scheduleEvent(sim, end(sim), "simpleHarvestPlanning", "plotSummary",
+                             eventPriority = .last())
+    },
+
+    plotSummary = {
+      # time series of the whole run: AAC and harvest, by species, area, age
+      ts <- harvestTimeSeries(sim$harvestSummary, sim$hanzlikStats, sim$harvestStats,
+                              pixelArea = prod(terra::res(sim$pixelGroupMap)))
+      plotArgs <- list(types = P(sim)$.plots, path = figurePath(sim),
+                       ggsaveArgs = list(width = 7, height = 5, units = "in", dpi = 300))
+      if (NROW(ts$aac))
+        do.call(Plots, c(list(ts$aac, fn = plotHarvestAAC, filename = "harvest_AAC_vs_cut"), plotArgs))
+      if (NROW(ts$species))
+        do.call(Plots, c(list(ts$species, fn = plotHarvestSpecies, cols = sim$sppColorVect,
+                              filename = "harvest_biomass_by_species"), plotArgs))
+      if (NROW(ts$area))
+        do.call(Plots, c(list(ts$area, fn = plotHarvestArea, filename = "harvest_area"), plotArgs))
+      if (NROW(ts$age))
+        do.call(Plots, c(list(ts$age, fn = plotHarvestAge, filename = "harvest_age"), plotArgs))
     },
     
     plot = {
@@ -125,40 +168,46 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
     },
     
     harvest = {
-      if (P(sim)$hanzlik == TRUE){
-        year <- as.integer(time(sim)) 
-        # Add pixel info to cohortData
-        cdLong <- LandR::addPixels2CohortData(sim$cohortData, sim$pixelGroupMap)
-        # Attach blockId from raster
-        cdLong[, planningArea := terra::values(sim$planningArea)[pixelIndex]]
-        
-        # --- Initialize Hanzlik target for each block
-        sim$harvestTarget <- list()
-        blocks <- sort(unique(na.omit(terra::values(sim$planningArea))))
-        
-        for (bv in blocks) {
-          Vm <- cdLong[planningArea == bv & age >= P(sim)$minAgesToHarvest,
-                       sum(B, na.rm = TRUE)]
-          if (Vm <= 0) {
-            sim$harvestTarget[[as.character(bv)]] <- 0
-          } else {
-            sim$harvestTarget[[as.character(bv)]] <- 1 / P(sim)$minAgesToHarvest
-          }
+      # rotation age of each pixel: spatialConstraints where they apply, else the rotationAge
+      # param. Pixels with an NA rotation are never harvested. With Hanzlik, each rotation age
+      # is its own harvest: its own AAC, target and pixel selection.
+      R <- if (is.na(P(sim)$rotationAge)) P(sim)$minAgesToHarvest else P(sim)$rotationAge
+      rotationMap <- rotationAgeMap(sim$spatialConstraints, sim$pixelGroupMap, R)
+      thlb <- terra::mask(sim$thlb, rotationMap)
+      rotations <- if (isTRUE(P(sim)$hanzlik))
+        sort(unique(terra::values(rotationMap)[terra::values(thlb) %in% 1])) else NA
+      harvestSpread <- list()
+      for (rot in rotations) {
+        thlbRot <- thlb
+        if (!is.na(rot)) {
+          thlbRot[rotationMap != rot] <- NA
+          sim$harvestTarget <- hanzlikTarget(
+            cohortData = sim$cohortData,
+            pixelGroupMap = sim$pixelGroupMap,
+            planningArea = sim$planningArea,
+            thlb = thlbRot,
+            minAgesToHarvest = P(sim)$minAgesToHarvest,
+            rotationAge = rot,
+            verbose = P(sim)$verbose
+          )
+          sim$hanzlikStats <- rbind(sim$hanzlikStats,
+                                    cbind(year = as.integer(time(sim)), attr(sim$harvestTarget, "stats")))
         }
+
+        harvestSpread[[length(harvestSpread) + 1]] <- harvestSpreadInputs(
+          pixelGroupMap = sim$pixelGroupMap,
+          cohortData = sim$cohortData,
+          thlb = thlbRot,
+          planningArea = sim$planningArea,
+          spreadProb = P(sim)$spreadProb,
+          maxCutSize = P(sim)$maxPatchSizetoHarvest,
+          minAgesToHarvest = P(sim)$minAgesToHarvest,
+          target = sim$harvestTarget,
+          year = as.integer(time(sim)),
+          verbose = P(sim)$verbose
+        )
       }
-      
-      harvestSpread <- harvestSpreadInputs(
-        pixelGroupMap = sim$pixelGroupMap,
-        cohortData = sim$cohortData,
-        thlb = sim$thlb,
-        planningArea = sim$planningArea,
-        spreadProb = P(sim)$spreadProb,
-        maxCutSize = P(sim)$maxPatchSizetoHarvest,
-        minAgesToHarvest = P(sim)$minAgesToHarvest,
-        target = sim$harvestTarget,
-        year = as.integer(time(sim)),
-        verbose = P(sim)$verbose
-      )
+      harvestSpread <- combineHarvestSpread(harvestSpread, sim$pixelGroupMap)
       
       # annual harvest map (binary)
       sim$rstCurrentHarvest <- harvestSpread$rstCurrentHarvest
@@ -175,6 +224,13 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
       sim$timeSinceHarvest <- sim$timeSinceHarvest + 1
       sim$timeSinceHarvest[sim$rstCurrentHarvest] <- 0
       sim$speciesHarvestMaps <- harvestSpread$speciesHarvestMaps
+      if (identical(P(sim)$harvestType, "clearcut")) {
+        # every species is cut wherever any pixel is harvested
+        spp <- unique(as.character(sim$cohortData$speciesCode))
+        sim$speciesHarvestMaps <- setNames(rep(list(sim$rstCurrentHarvest), length(spp)), spp)
+      } else if (!identical(P(sim)$harvestType, "partial")) {
+        stop("harvestType must be 'partial' or 'clearcut'")
+      }
       
       # Accumulate harvestStats across years
       sim$harvestStats <- rbind(sim$harvestStats, harvestSpread$harvestStats, fill = TRUE)
@@ -204,16 +260,16 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
       )
       
       harvestIndex <- harvestIndex[, .SD[1], by = .(year, pixelIndex)]
-      cdLong <- LandR::addPixels2CohortData(sim$cohortData, sim$pixelGroupMap)
-      
-      # Merge cohort data and append to harvestSummary
+
+      # Merge cohort data and append to harvestSummary; only the cohorts that are cut
+      cdCut <- cutCohorts(sim$cohortData, sim$pixelGroupMap, sim$speciesHarvestMaps,
+                          P(sim)$minAgesToHarvest)
       sim$harvestSummary <- rbind(
         sim$harvestSummary,
         merge(
           harvestIndex,
-          cdLong[, .(pixelGroup, pixelIndex, speciesCode, age, B)],
-          by = c("pixelGroup", "pixelIndex"),
-          all.x = TRUE
+          cdCut,
+          by = c("pixelGroup", "pixelIndex")
         ),
         fill = TRUE
       )
@@ -509,8 +565,13 @@ harvestSpreadInputs <- function(pixelGroupMap,
       )
     } # end species loop
   } # end block loop
-  
-  
+
+  # nothing was cut (e.g. a target of 0, or nothing old enough): no diagnostics to compute
+  if (NROW(harvestStats) == 0) {
+    return(list(rstCurrentHarvest = rstCurrentHarvest, speciesHarvestMaps = speciesHarvestMaps,
+                harvestStats = harvestStats, harvestPerformance = list()))
+  }
+
   # Harvest performance diagnostics (PIXEL-BASED, LANDIS-CONSISTENT)
   # Ensure harvestStats is a data.table
   setDT(harvestStats)
@@ -564,6 +625,144 @@ harvestSpreadInputs <- function(pixelGroupMap,
   ))
 }
 
+# Hanzlik annual allowable cut, Vm / R + I, in biomass on the thlb of each planningArea.
+# Vm = B of cohorts aged R or more; I = mean annual increment (B / age) of younger cohorts.
+# The module cuts a share of the eligible pixels, so the target returned for each planningArea
+# is the cut over the biomass old enough to be harvested (capped at 1).
+hanzlikTarget <- function(cohortData, pixelGroupMap, planningArea, thlb, minAgesToHarvest,
+                          rotationAge = NA, verbose = 0) {
+  R <- if (is.na(rotationAge)) minAgesToHarvest else rotationAge
+  cdLong <- LandR::addPixels2CohortData(cohortData, pixelGroupMap)
+  cdLong[, planningArea := terra::values(planningArea)[pixelIndex]]
+  cdLong <- cdLong[terra::values(thlb)[pixelIndex] %in% 1]
+
+  target <- list()
+  stats <- list()
+  for (bv in sort(unique(na.omit(terra::values(planningArea))))) {
+    cdB <- cdLong[planningArea == bv]
+    Vm <- cdB[age >= R, sum(B, na.rm = TRUE)]
+    I <- cdB[age > 0 & age < R, sum(B / age, na.rm = TRUE)]
+    Bharvestable <- cdB[age >= minAgesToHarvest, sum(B, na.rm = TRUE)]
+    aac <- Vm / R + I
+    target[[as.character(bv)]] <- if (Bharvestable > 0) min(1, aac / Bharvestable) else 0
+    stats[[length(stats) + 1]] <- data.table(planningArea = bv, rotationAge = R, Vm = Vm, I = I,
+                                             AAC = aac, Bharvestable = Bharvestable,
+                                             target = target[[as.character(bv)]])
+    if (verbose > 0)
+      message("Hanzlik, planningArea ", bv, ": Vm = ", round(Vm), ", R = ", R, ", I = ", round(I),
+              ", AAC = ", round(aac), " (sum of B, g/m2 x pixels); target = ",
+              signif(target[[as.character(bv)]], 3), " of harvestable biomass")
+  }
+  # the parts of the AAC, for hanzlikStats
+  attr(target, "stats") <- rbindlist(stats)
+  target
+}
+
+# Rotation age of each pixel. spatialConstraints has one layer per constraint (e.g. protected,
+# plannedProtected), each holding that constraint's rotation age where it applies, NA for no
+# harvest, and 0 where it does not apply. Where constraints overlap, no harvest wins, then the
+# longest rotation; pixels in no constraint get rotationAge.
+rotationAgeMap <- function(spatialConstraints, template, rotationAge) {
+  out <- terra::rast(template, nlyrs = 1)
+  out[] <- rotationAge
+  if (is.null(spatialConstraints)) return(out)
+  longest <- terra::classify(max(spatialConstraints, na.rm = TRUE), cbind(0, NA))
+  terra::mask(terra::cover(longest, out), max(spatialConstraints))  # any NA layer: no harvest
+}
+
+# One year's harvest from the separate harvests of each rotation age (disjoint pixels).
+combineHarvestSpread <- function(harvestSpread, template) {
+  if (length(harvestSpread) == 1) return(harvestSpread[[1]])
+  rst <- terra::rast(template)
+  rst[] <- 0
+  speciesHarvestMaps <- list()
+  for (hs in harvestSpread) {
+    rst <- rst + hs$rstCurrentHarvest
+    for (sp in names(hs$speciesHarvestMaps))
+      speciesHarvestMaps[[sp]] <- if (is.null(speciesHarvestMaps[[sp]])) hs$speciesHarvestMaps[[sp]] else
+        speciesHarvestMaps[[sp]] + hs$speciesHarvestMaps[[sp]]
+  }
+  perf <- lapply(harvestSpread, `[[`, "harvestPerformance")
+  perf <- perf[lengths(perf) > 0]
+  list(rstCurrentHarvest = rst,
+       speciesHarvestMaps = speciesHarvestMaps,
+       harvestStats = rbindlist(lapply(harvestSpread, `[[`, "harvestStats"), fill = TRUE),
+       harvestPerformance = if (length(perf)) setNames(lapply(names(perf[[1]]), function(nm)
+         rbindlist(lapply(perf, `[[`, nm))), names(perf[[1]])) else list())
+}
+
+# The cohorts that are cut: in each pixel, the species set to 1 in speciesHarvestMaps, aged
+# minAgesToHarvest or more. Not every cohort in a harvested pixel.
+cutCohorts <- function(cohortData, pixelGroupMap, speciesHarvestMaps, minAgesToHarvest) {
+  cdLong <- LandR::addPixels2CohortData(cohortData, pixelGroupMap)
+  if (length(speciesHarvestMaps) == 0)
+    return(cdLong[0, .(pixelGroup, pixelIndex, speciesCode, age, B)])
+  spCut <- rbindlist(lapply(names(speciesHarvestMaps), function(sp)
+    data.table(pixelIndex = which(as.vector(speciesHarvestMaps[[sp]]) == 1), speciesCode = sp)))
+  cdCut <- cdLong[age >= minAgesToHarvest, .(pixelGroup, pixelIndex, speciesCode, age, B)]
+  cdCut[spCut, on = .(pixelIndex, speciesCode), nomatch = 0]
+}
+
+# Time series for the summary plots. B is g/m2 per pixel, so tonnes = B x pixelArea (m2) / 1e6.
+# Returns a list of data.tables: aac (year, planningArea, what, t), species (year, speciesCode, t),
+# area (year, what, ha) and age (year, mean, q10, q90 of the age of the cohorts cut, B-weighted mean).
+harvestTimeSeries <- function(harvestSummary, hanzlikStats, harvestStats, pixelArea) {
+  toT <- pixelArea / 1e6
+  hs <- as.data.table(harvestSummary)
+  if (NROW(hs)) hs[, B := as.numeric(B)]  # integer sums overflow on large landscapes
+  cut <- if (NROW(hs)) hs[, list(t = sum(B, na.rm = TRUE) * toT), by = c("year", "planningArea")] else NULL
+  aac <- if (NROW(hanzlikStats)) as.data.table(hanzlikStats)[, list(t = sum(AAC) * toT),
+                                                              by = c("year", "planningArea")] else NULL
+  aac <- rbind(if (!is.null(aac)) aac[, what := "AAC (Hanzlik)"],
+               if (!is.null(cut)) cut[, what := "Harvested"])
+  species <- if (NROW(hs)) hs[, list(t = sum(B, na.rm = TRUE) * toT),
+                              by = list(year, speciesCode = as.character(speciesCode))] else NULL
+  area <- if (NROW(harvestStats))
+    data.table::melt(as.data.table(harvestStats)[, list(Expected = sum(expectedHarvest_sp) * pixelArea / 1e4,
+                                                        Harvested = sum(observedHarvest_sp) * pixelArea / 1e4),
+                                                 by = "year"],
+                     id.vars = "year", variable.name = "what", value.name = "ha") else NULL
+  age <- if (NROW(hs)) hs[, list(mean = sum(age * B) / sum(B), q10 = stats::quantile(age, 0.1),
+                                 q90 = stats::quantile(age, 0.9)), by = "year"] else NULL
+  list(aac = aac, species = species, area = area, age = age)
+}
+
+plotHarvestAAC <- function(dt) {
+  gg <- ggplot2::ggplot(dt, ggplot2::aes(year, t, colour = what)) +
+    ggplot2::geom_line() +
+    ggplot2::labs(x = "Year", y = "Aboveground biomass (t)", colour = NULL,
+                  title = "Annual allowable cut and harvest") +
+    ggplot2::theme_bw()
+  if (data.table::uniqueN(dt$planningArea) > 1)
+    gg <- gg + ggplot2::facet_wrap(~ planningArea, labeller = ggplot2::label_both)
+  gg
+}
+
+plotHarvestSpecies <- function(dt, cols = NULL) {
+  gg <- ggplot2::ggplot(dt, ggplot2::aes(year, t, fill = speciesCode)) +
+    ggplot2::geom_area() +
+    ggplot2::labs(x = "Year", y = "Aboveground biomass harvested (t)", fill = "Species",
+                  title = "Harvested biomass by species") +
+    ggplot2::theme_bw()
+  if (!is.null(cols)) gg <- gg + ggplot2::scale_fill_manual(values = cols)
+  gg
+}
+
+plotHarvestArea <- function(dt) {
+  ggplot2::ggplot(dt, ggplot2::aes(year, ha, colour = what)) +
+    ggplot2::geom_line() +
+    ggplot2::labs(x = "Year", y = "Area (ha)", colour = NULL, title = "Area harvested") +
+    ggplot2::theme_bw()
+}
+
+plotHarvestAge <- function(dt) {
+  ggplot2::ggplot(dt, ggplot2::aes(year, mean)) +
+    ggplot2::geom_ribbon(ggplot2::aes(ymin = q10, ymax = q90), alpha = 0.3) +
+    ggplot2::geom_line() +
+    ggplot2::labs(x = "Year", y = "Age (years)",
+                  title = "Age of harvested cohorts", subtitle = "Biomass-weighted mean; band: 10-90%") +
+    ggplot2::theme_bw()
+}
 
 .inputObjects <- function(sim) {
   
