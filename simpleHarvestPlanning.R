@@ -9,7 +9,7 @@ defineModule(sim, list(
     person("Parvin", "Kalantari", email = "parvin.kalantari@nrcan-rncan.gc.ca", role = c("aut","ctb"))
   ),
   childModules = character(0),
-  version = list(SpaDES.core = "0.2.5.9008", simpleHarvestPlanning = "0.0.1"),
+  version = list(SpaDES.core = "0.2.5.9008", simpleHarvestPlanning = "0.1.0"),
   timeframe = as.POSIXlt(c(NA, NA)),
   timeunit = "year",
   citation = list("citation.bib"),
