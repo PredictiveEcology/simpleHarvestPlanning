@@ -1,3 +1,5 @@
+# simpleHarvestPlanning (development version)
+
 # simpleHarvestPlanning 0.1.0
 
 simpleHarvestPlanning can now do partial cuts as well as clearcuts, and it sets the annual cut with the Hanzlik formula, based on the standing biomass and a rotation age. Spatial constraints can set different rotation ages for different areas, or mark areas where no harvest happens. New summary plots show the allowable cut against what was actually cut, biomass by species, and harvested area and age over time.
