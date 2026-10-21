@@ -2,7 +2,7 @@
 
 test_that("hanzlikTarget returns the parts of the AAC as a 'stats' attribute", {
   L <- toyLandscape()
-  tgt <- hanzlikTarget(L$cohortData, L$pixelGroupMap, L$planningArea, L$thlb, minAgesToHarvest = 50)
+  tgt <- timberSupply::hanzlikTarget(L$cohortData, L$pixelGroupMap, L$planningArea, L$thlb, minAgesToHarvest = 50)
   st <- attr(tgt, "stats")
   expect_s3_class(st, "data.table")
   expect_identical(st$planningArea, 1)
