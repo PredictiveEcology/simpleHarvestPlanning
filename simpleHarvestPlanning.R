@@ -185,34 +185,49 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
       # Store this year's performance in the list
       sim$harvestPerformance[[as.character(year)]] <- harvestSpread$harvestPerformance
       
-      # Identify harvested pixels
-      harvested_vals <- as.vector(sim$rstCurrentHarvest)
-      
-      # Safeguard: only keep pixels with valid pixelGroup
+      # Identify harvested pixels, per species.
+      # rstCurrentHarvest is the union across species, so it cannot say which
+      # species was harvested in a pixel; speciesHarvestMaps can.
       valid_pixels <- !is.na(terra::values(sim$pixelGroupMap))
-      harvested_vals <- harvested_vals & valid_pixels
+      pixelGroupVals <- terra::values(sim$pixelGroupMap)
       
-      # Now extract pixel indices and pixelGroup safely
-      pixelIndex <- which(harvested_vals)
-      pixelGroup <- terra::values(sim$pixelGroupMap)[harvested_vals]
+      harvestIndex <- data.table()
+      for (sp in names(sim$speciesHarvestMaps)) {
+        harvested_vals <- as.vector(sim$speciesHarvestMaps[[sp]]) > 0
+        harvested_vals[is.na(harvested_vals)] <- FALSE
+        
+        # Safeguard: only keep pixels with valid pixelGroup
+        harvested_vals <- harvested_vals & valid_pixels
+        if (!any(harvested_vals)) next
+        
+        harvestIndex <- rbind(
+          harvestIndex,
+          data.table(
+            year = as.integer(time(sim)),
+            pixelGroup = pixelGroupVals[harvested_vals],
+            pixelIndex = which(harvested_vals),
+            speciesCode = sp
+          )
+        )
+      }
       
-      # Create a table of of harvested pixels
-      harvestIndex <- data.table(
-        year = as.integer(time(sim)),
-        pixelGroup = pixelGroup,
-        pixelIndex =  pixelIndex 
-      )
-      
-      harvestIndex <- harvestIndex[, .SD[1], by = .(year, pixelIndex)]
       cdLong <- LandR::addPixels2CohortData(sim$cohortData, sim$pixelGroupMap)
       
-      # Merge cohort data and append to harvestSummary
+      if (nrow(harvestIndex) > 0) {
+        harvestIndex <- harvestIndex[, .SD[1], by = .(year, pixelIndex, speciesCode)]
+        # match the factor representation used by cohortData so the merge keys align
+        harvestIndex[, speciesCode := factor(speciesCode, levels = levels(cdLong$speciesCode))]
+      }
+      
+      # Merge cohort data and append to harvestSummary.
+      # speciesCode is part of the key so that only the cohorts actually
+      # harvested are retained, not every cohort sharing the pixel.
       sim$harvestSummary <- rbind(
         sim$harvestSummary,
         merge(
           harvestIndex,
           cdLong[, .(pixelGroup, pixelIndex, speciesCode, age, B)],
-          by = c("pixelGroup", "pixelIndex"),
+          by = c("pixelGroup", "pixelIndex", "speciesCode"),
           all.x = TRUE
         ),
         fill = TRUE
