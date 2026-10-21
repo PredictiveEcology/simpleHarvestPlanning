@@ -37,7 +37,7 @@ test_that("a target of 0 cuts nothing", {
 
 test_that("cutCohorts() of an empty speciesHarvestMaps is empty", {
   L <- toyLandscape()
-  expect_identical(nrow(cutCohorts(L$cohortData, L$pixelGroupMap, list(), 50)), 0L)
+  expect_identical(nrow(timberSupply::cutCohorts(L$cohortData, L$pixelGroupMap, list(), 50)), 0L)
 })
 
 test_that("a target for a planningArea that does not exist is an error", {
