@@ -708,6 +708,22 @@ plotHarvestAge <- function(dt) {
     ggplot2::theme_bw()
 }
 
+# Default planningArea: the study area (the non-NA pixels of rasterToMatch) split into nAreas
+# areas of about equal size, numbered 1..nAreas. Built from rasterToMatch, not thlb, because thlb
+# may come from another module's init (thlbBC), after every .inputObjects has run; harvest is
+# kept on the thlb elsewhere.
+defaultPlanningArea <- function(rasterToMatch, nAreas) {
+  planningArea <- terra::rast(rasterToMatch, nlyrs = 1)
+  planningArea[] <- NA_real_
+  validPixels <- which(!is.na(terra::values(rasterToMatch)[, 1]))
+  perArea <- floor(length(validPixels) / nAreas)
+  for (i in seq_len(nAreas)) {
+    last <- if (i < nAreas) i * perArea else length(validPixels)
+    planningArea[validPixels[((i - 1) * perArea + 1):last]] <- i
+  }
+  planningArea
+}
+
 .inputObjects <- function(sim) {
   
   cacheTags <- c(currentModule(sim), "otherFunctions:.inputObjects")
@@ -783,28 +799,7 @@ plotHarvestAge <- function(dt) {
   }
   
   if (!suppliedElsewhere("planningArea", sim)) {
-    
-    planningArea <- sim$thlb
-    planningArea[] <- NA  # initialize
-    
-    validPixels <- which(!is.na(sim$thlb[]))  # pixels that can be harvested
-    N <- length(sim$harvestTarget)
-    
-    if (N == 1) {
-      planningArea[validPixels] <- 1
-    } else {
-      pixelsPerplanningArea <- floor(length(validPixels) / N)
-      
-      for (i in 1:N) {
-        startIdx <- (i - 1) * pixelsPerplanningArea + 1
-        endIdx <- if (i < N) i * pixelsPerplanningArea else length(validPixels)
-        selected <- validPixels[startIdx:endIdx]
-        planningArea[selected] <- i
-      }
-    }
-    
-    planningArea[] <- as.numeric(planningArea[])
-    sim$planningArea <- planningArea
+    sim$planningArea <- defaultPlanningArea(sim$rasterToMatch, length(sim$harvestTarget))
   }
   
   #check if number of planningAreas matches those in harvestTargets

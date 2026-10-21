@@ -2736,7 +2736,7 @@ border-radius: 0px;
 
 
 <h1 class="title toc-ignore">simpleHarvestPlanning Manual</h1>
-<h4 class="date">Last updated: 2026-10-09</h4>
+<h4 class="date">Last updated: 2026-10-21</h4>
 
 </div>
 
@@ -2909,14 +2909,15 @@ nothing.</p>
 </div>
 <div id="parameters" class="section level1">
 <h1>Parameters</h1>
-<table>
+<table style="width:100%;">
 <colgroup>
 <col width="6%" />
 <col width="3%" />
 <col width="2%" />
 <col width="1%" />
 <col width="1%" />
-<col width="84%" />
+<col width="82%" />
+<col width="2%" />
 </colgroup>
 <thead>
 <tr class="header">
@@ -2926,6 +2927,7 @@ nothing.</p>
 <th align="left">min</th>
 <th align="left">max</th>
 <th align="left">paramDesc</th>
+<th align="left">cacheKey</th>
 </tr>
 </thead>
 <tbody>
@@ -2936,6 +2938,7 @@ nothing.</p>
 <td align="left">NA</td>
 <td align="left">NA</td>
 <td align="left">This is here for backwards compatibility. Please use <code>.plots</code></td>
+<td align="left">TRUE</td>
 </tr>
 <tr class="even">
 <td align="left">.plots</td>
@@ -2944,6 +2947,7 @@ nothing.</p>
 <td align="left">NA</td>
 <td align="left">NA</td>
 <td align="left">This describes the type of ‘plotting’ to do. See <code>?Plots</code> for possible types. To omit, set to NA</td>
+<td align="left">TRUE</td>
 </tr>
 <tr class="odd">
 <td align="left">.plotInterval</td>
@@ -2952,6 +2956,7 @@ nothing.</p>
 <td align="left">NA</td>
 <td align="left">NA</td>
 <td align="left">This describes the simulation time interval between plot events</td>
+<td align="left">TRUE</td>
 </tr>
 <tr class="even">
 <td align="left">.saveInitialTime</td>
@@ -2960,6 +2965,7 @@ nothing.</p>
 <td align="left">NA</td>
 <td align="left">NA</td>
 <td align="left">This describes the simulation time at which the first save event should occur</td>
+<td align="left">TRUE</td>
 </tr>
 <tr class="odd">
 <td align="left">.saveInterval</td>
@@ -2968,6 +2974,7 @@ nothing.</p>
 <td align="left">NA</td>
 <td align="left">NA</td>
 <td align="left">This describes the simulation time interval between save events</td>
+<td align="left">TRUE</td>
 </tr>
 <tr class="even">
 <td align="left">.useCache</td>
@@ -2976,6 +2983,7 @@ nothing.</p>
 <td align="left">NA</td>
 <td align="left">NA</td>
 <td align="left">Should this entire module be run with caching activated? This is generally intended for data-type modules, where stochasticity and time are not relevant</td>
+<td align="left">TRUE</td>
 </tr>
 <tr class="odd">
 <td align="left">startTime</td>
@@ -2984,6 +2992,7 @@ nothing.</p>
 <td align="left">NA</td>
 <td align="left">NA</td>
 <td align="left">Simulation time at which to initiate harvesting</td>
+<td align="left">TRUE</td>
 </tr>
 <tr class="even">
 <td align="left">minAgesToHarvest</td>
@@ -2992,6 +3001,7 @@ nothing.</p>
 <td align="left">1</td>
 <td align="left">NA</td>
 <td align="left">minimum ages of trees to harvest</td>
+<td align="left">TRUE</td>
 </tr>
 <tr class="odd">
 <td align="left">maxPatchSizetoHarvest</td>
@@ -3000,6 +3010,7 @@ nothing.</p>
 <td align="left">1</td>
 <td align="left">NA</td>
 <td align="left">maximum size for harvestable patches, in pixels</td>
+<td align="left">TRUE</td>
 </tr>
 <tr class="even">
 <td align="left">spreadProb</td>
@@ -3008,6 +3019,7 @@ nothing.</p>
 <td align="left">0.01</td>
 <td align="left">1</td>
 <td align="left">spread prob when determing harvest patch size. Larger spreadProb yields cuts closer to max. Exceeding 1 will likely result in harvest patches that are maximum size</td>
+<td align="left">TRUE</td>
 </tr>
 <tr class="odd">
 <td align="left">verbose</td>
@@ -3016,6 +3028,7 @@ nothing.</p>
 <td align="left">0</td>
 <td align="left">1</td>
 <td align="left">if 1, print more detailed messaging about harvest</td>
+<td align="left">TRUE</td>
 </tr>
 <tr class="even">
 <td align="left">hanzlik</td>
@@ -3024,6 +3037,7 @@ nothing.</p>
 <td align="left">NA</td>
 <td align="left">NA</td>
 <td align="left">toggles whether or not the Hanzlik formula is used to determine harvest: annual cut = Vm / R + I, in biomass, per planningArea on the thlb. Vm = biomass of cohorts aged <code>rotationAge</code> or more, R = <code>rotationAge</code>, I = mean annual increment (B / age) of younger cohorts.</td>
+<td align="left">TRUE</td>
 </tr>
 <tr class="odd">
 <td align="left">rotationAge</td>
@@ -3032,6 +3046,7 @@ nothing.</p>
 <td align="left">1</td>
 <td align="left">NA</td>
 <td align="left">Rotation age (R) in the Hanzlik formula. NA uses <code>minAgesToHarvest</code>. <code>spatialConstraints</code> override it where they apply.</td>
+<td align="left">TRUE</td>
 </tr>
 <tr class="even">
 <td align="left">harvestType</td>
@@ -3040,6 +3055,7 @@ nothing.</p>
 <td align="left">NA</td>
 <td align="left">NA</td>
 <td align="left">What is cut in a harvested pixel. ‘partial’: only the cohorts of the species the pixel was selected under (its dominant species). ‘clearcut’: the cohorts of every species. Either way, only cohorts aged <code>minAgesToHarvest</code> or more. Expressed through <code>speciesHarvestMaps</code>.</td>
+<td align="left">TRUE</td>
 </tr>
 </tbody>
 </table>
