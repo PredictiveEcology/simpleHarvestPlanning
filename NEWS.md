@@ -3,6 +3,7 @@
 * The Hanzlik target, rotation-age map and cut-cohort functions now come from the timberSupply package instead of copies inside the module. Results are unchanged.
 * A harvest target can name only some species; the others are skipped instead of stopping the run.
 * When no `planningArea` is supplied, the module makes one from `rasterToMatch` (the whole study area, split into as many areas as `harvestTarget` has). It used `thlb`, which does not exist yet when thlbBC makes it, so such a run stopped during setup.
+* When no `thlb` is supplied, the one the module makes now leaves out land at 2000 m or higher, as intended, so it can be smaller than before. Its map is saved in the inputs folder, not a `GIS` folder in the working directory. The module also runs with only `rasterToMatch` and `thlb` supplied; the stand-ins for `cohortData` and `pixelGroupMap` stopped the run.
 
 # simpleHarvestPlanning 0.1.0
 

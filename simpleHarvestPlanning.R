@@ -738,15 +738,15 @@ defaultPlanningArea <- function(rasterToMatch, nAreas) {
   if (!suppliedElsewhere("cohortData", sim)) {
     sim$cohortData <- data.table::data.table(
       pixelGroup = 1L,
+      speciesCode = factor("dummySpecies"),
       age = 10L,
-      species = "dummySpecies",
-      biomass = 100
+      B = 100L
     )
   }
   
   # pixelGroupMap dummy from rasterToMatch
   if (!suppliedElsewhere("pixelGroupMap", sim)) {
-    sim$pixelGroupMap <- terra::rast(sim$rasterToMatch)
+    sim$pixelGroupMap <- sim$rasterToMatch
     vals <- terra::values(sim$pixelGroupMap)
     vals[!is.na(vals)] <- 1L
     terra::values(sim$pixelGroupMap) <- vals
@@ -775,7 +775,7 @@ defaultPlanningArea <- function(rasterToMatch, nAreas) {
                                 fun = "terra::rast",
                                 to = sim$rasterToMatch,
                                 method = "near",
-                                destinationPath = "GIS",
+                                destinationPath = dPath,
                                 targetFile = "Canada_MFv2017.tif")
     
     # Raster to match
@@ -785,11 +785,11 @@ defaultPlanningArea <- function(rasterToMatch, nAreas) {
     
     rtm[!is.na(rtm)] <- 1
     
-    # Mask by elevation
-    thlb <- terra::mask(dem < 2000 , rtm)
-    
     # Keep only classes 11, 12, 50
     thlb <- terra::mask(x = rtm, mask = ManagedForest, maskvalues = c(11,12,50), inverse = TRUE)
+
+    # and below 2000 m
+    thlb[dem >= 2000] <- NA
     
     sim$thlb <- thlb
   }
