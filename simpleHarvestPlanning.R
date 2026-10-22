@@ -15,7 +15,7 @@ defineModule(sim, list(
   citation = list("citation.bib"),
   documentation = list("README.md", "simpleHarvestPlanning.Rmd"),
   reqdPkgs = list("data.table", "PredictiveEcology/LandR@development (>= 1.1.5.9055)", 'sf', 'magrittr', 'fasterize', "terra",
-                  "reproducible", "SpaDES.tools", "ggplot2",
+                  "reproducible", "SpaDES.tools", "ggplot2", "tidyterra", "viridis",
                   "PredictiveEcology/timberSupply@development"),
   parameters = rbind(
     # Simulation/plotting controls

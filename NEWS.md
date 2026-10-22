@@ -1,5 +1,6 @@
 # simpleHarvestPlanning (development version)
 
+* `reqdPkgs` now lists tidyterra and viridis, used by `plot_harvestMap()`; a new test checks that every package the module uses is listed.
 * The Hanzlik target, rotation-age map and cut-cohort functions now come from the timberSupply package instead of copies inside the module. Results are unchanged.
 * A harvest target can name only some species; the others are skipped instead of stopping the run.
 * When no `planningArea` is supplied, the module makes one from `rasterToMatch` (the whole study area, split into as many areas as `harvestTarget` has). It used `thlb`, which does not exist yet when thlbBC makes it, so such a run stopped during setup.
