@@ -2736,7 +2736,7 @@ border-radius: 0px;
 
 
 <h1 class="title toc-ignore">simpleHarvestPlanning Manual</h1>
-<h4 class="date">Last updated: 2026-10-21</h4>
+<h4 class="date">Last updated: 2026-10-22</h4>
 
 </div>
 
@@ -2747,7 +2747,11 @@ border-radius: 0px;
 <p><em>simpleHarvestPlanning</em> is a simple, spatially explicit harvest planner for LandR. Each year it
 chooses which pixels to harvest and which species to cut in them, and records what that removes.</p>
 <p>It <strong>does not remove anything itself</strong>. Pair it with <em>LandRCBM_partialDisturbance</em>, which reads
-<code>speciesHarvestMaps</code>, removes the flagged cohorts from <code>cohortData</code> and replants the pixels.</p>
+<code>speciesHarvestMaps</code>, removes the flagged cohorts from <code>cohortData</code> and replants the pixels.
+Without it, the same stands stay old enough and are cut again every year.</p>
+<p>The Hanzlik target, the rotation age of each pixel and the list of cohorts cut come from the
+<a href="https://github.com/PredictiveEcology/timberSupply">timberSupply</a> package (<code>hanzlikTarget()</code>,
+<code>rotationAgeMap()</code>, <code>cutCohorts()</code>), so they can also be used outside a simulation.</p>
 <p>What it decides:</p>
 <ul>
 <li><strong>How much</strong> to cut in each planning area: a fixed share per year, or Hanzlik’s annual
@@ -2790,6 +2794,8 @@ planning area. Each element is either one number or a list of numbers by species
   &quot;3&quot; = 0.01,   # every species in planning area 3
   &quot;4&quot; = 0.008
 )</code></pre>
+<p>Without <code>default</code>, only the species listed are cut. This cuts only lodgepole pine:</p>
+<pre class="r"><code>harvestTarget &lt;- list(&quot;1&quot; = list(Pinu_con = 0.01))</code></pre>
 <p>If <code>harvestTarget</code> and <code>planningArea</code> are not supplied, the module uses one planning area with a
 target of 0.01.</p>
 </div>
@@ -2827,6 +2833,8 @@ plannedProtected[] &lt;- 0
 protected[parkPixels] &lt;- NA           # never harvested
 plannedProtected[plannedPixels] &lt;- 200
 spatialConstraints &lt;- c(protected = protected, plannedProtected = plannedProtected)</code></pre>
+<p>In BC, <em>harvestConstraintsBC</em> makes this object from parks, habitat, scenic areas and
+watersheds.</p>
 <p>Where layers overlap, no harvest wins, then the longest rotation. Pixels in no constraint use
 <code>rotationAge</code>.</p>
 <ul>
@@ -2893,9 +2901,12 @@ expected and how many were cut.</p></li>
 <li><p><code>hanzlikStats</code>: with <code>hanzlik = TRUE</code>, one row per year, planning area and rotation age, with
 <span class="math inline">\(V_m\)</span>, <span class="math inline">\(I\)</span>, the AAC, the harvestable biomass and the target.</p></li>
 </ul>
-<div id="summary-plots" class="section level2">
-<h2>Summary plots</h2>
-<p>When <code>.plots</code> is set, a <code>plotSummary</code> event at the end of the simulation writes four time series to
+<div id="plots" class="section level2">
+<h2>Plots</h2>
+<p><code>.plots</code> is <code>&quot;png&quot;</code> by default. Each harvest year, the <code>plot</code> event writes two maps to
+<code>figures/simpleHarvestPlanning/</code>: <code>currentHarvest_year_&lt;year&gt;</code> (that year’s harvest, coloured
+by planning area) and <code>cumulativeHarvest_year_&lt;year&gt;</code>. Set <code>.plots = NA</code> to turn plotting off.</p>
+<p>At the end of the simulation, a <code>plotSummary</code> event at the end of the simulation writes four time series to
 <code>figures/simpleHarvestPlanning/</code>, in tonnes of aboveground biomass (B x pixel area):</p>
 <ul>
 <li><code>harvest_AAC_vs_cut</code>: the Hanzlik AAC and the biomass harvested, by planning area.</li>
@@ -3146,23 +3157,68 @@ nothing.</p>
 </tr>
 </tbody>
 </table>
-<p><code>rasterToMatch</code> is required. When missing, the others are created:</p>
-<ul>
-<li><code>thlb</code> from the Managed Forests of Canada map (2017): long- and short-term tenure and private
-forest (classes 11, 12, 50) are harvestable.</li>
-<li><code>planningArea</code> as one area over the THLB, or as equal splits when <code>harvestTarget</code> has several
-areas.</li>
-<li><code>harvestTarget</code> as <code>list(&quot;1&quot; = 0.01)</code>.</li>
-<li><code>timeSinceHarvest</code> as all <code>NA</code>.</li>
-</ul>
+<p><code>rasterToMatch</code> is required. The module runs on its own: when the others are missing it makes
+them, as below. In a full project they usually come from other modules.</p>
+<table>
+<colgroup>
+<col width="33%" />
+<col width="33%" />
+<col width="33%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Input</th>
+<th>Made by this module when missing</th>
+<th>Usually supplied by</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>cohortData</code>, <code>pixelGroupMap</code></td>
+<td>One young stand-in cohort on every pixel, so nothing is cut</td>
+<td><em>Biomass_core</em></td>
+</tr>
+<tr class="even">
+<td><code>thlb</code></td>
+<td>From the Managed Forests of Canada map (2017): long- and short-term tenure and private forest (classes 11, 12, 50), below 2000 m</td>
+<td><em>thlbBC</em> in BC</td>
+</tr>
+<tr class="odd">
+<td><code>spatialConstraints</code></td>
+<td>None: <code>rotationAge</code> applies everywhere</td>
+<td><em>harvestConstraintsBC</em> in BC</td>
+</tr>
+<tr class="even">
+<td><code>planningArea</code></td>
+<td>The whole study area (the non-<code>NA</code> pixels of <code>rasterToMatch</code>). With several areas in <code>harvestTarget</code>, it is split into that many parts of equal size, in raster cell order, so they are horizontal bands</td>
+<td>The project</td>
+</tr>
+<tr class="odd">
+<td><code>harvestTarget</code></td>
+<td><code>list(&quot;1&quot; = 0.01)</code></td>
+<td>The project</td>
+</tr>
+<tr class="even">
+<td><code>timeSinceHarvest</code></td>
+<td>All <code>NA</code></td>
+<td></td>
+</tr>
+<tr class="odd">
+<td><code>sppColorVect</code></td>
+<td>None: the plots use default colours</td>
+<td>The LandR biomass modules</td>
+</tr>
+</tbody>
+</table>
+<p>Harvest is always limited to the <code>thlb</code>, whatever the planning areas cover.</p>
 </div>
 <div id="output-objects" class="section level1">
 <h1>Output objects</h1>
 <table>
 <colgroup>
-<col width="11%" />
-<col width="6%" />
-<col width="81%" />
+<col width="8%" />
+<col width="4%" />
+<col width="86%" />
 </colgroup>
 <thead>
 <tr class="header">
@@ -3185,12 +3241,12 @@ areas.</li>
 <tr class="odd">
 <td align="left">harvestSummary</td>
 <td align="left">data.table</td>
-<td align="left">data.table with year and pixel index of harvested pixels</td>
+<td align="left">One row per year, pixel and cohort cut, with speciesCode, age, B and planningArea, at the time of selection. Only the cohorts cut, so sum(B) is the biomass harvested.</td>
 </tr>
 <tr class="even">
 <td align="left">harvestStats</td>
 <td align="left">data.table</td>
-<td align="left">data.table with storage for minCuts, totalCut, and target</td>
+<td align="left">Per year, planningArea and species: pixels available, expected and cut, and the target used.</td>
 </tr>
 <tr class="odd">
 <td align="left">speciesHarvestMaps</td>
@@ -3208,9 +3264,19 @@ areas.</li>
 <td align="left">With <code>hanzlik = TRUE</code>, one row per year, planningArea and rotation age: Vm, I, AAC and Bharvestable (sum of B in g/m2 over pixels) and the target.</td>
 </tr>
 <tr class="even">
+<td align="left">harvestTarget</td>
+<td align="left">list</td>
+<td align="left">With <code>hanzlik = TRUE</code>, replaced every year by the Hanzlik target of each planningArea, for the longest rotation age on the thlb that year; every rotation age’s target is in <code>hanzlikStats</code>. Otherwise unchanged.</td>
+</tr>
+<tr class="odd">
 <td align="left">thlb</td>
 <td align="left">SpatRaster</td>
 <td align="left">Harvestable pixels mask</td>
+</tr>
+<tr class="even">
+<td align="left">timeSinceHarvest</td>
+<td align="left">SpatRaster</td>
+<td align="left">Years since each pixel was last harvested; NA = never.</td>
 </tr>
 </tbody>
 </table>
@@ -3233,11 +3299,17 @@ areas.</li>
 )
 sim &lt;- SpaDES.core::simInitAndSpades2(out)
 sim$harvestSummary[, .(pixels = data.table::uniqueN(pixelIndex), B = sum(B)), by = year]</code></pre>
+<p>In BC, add <em>thlbBC</em> for the harvestable land base and <em>harvestConstraintsBC</em> for the
+<code>spatialConstraints</code>, before <em>simpleHarvestPlanning</em> in <code>modules</code>. A complete BC project, with
+yield tables, the land base, constraints, growth and harvest, is
+<a href="https://github.com/eliotmcintire/FIIS/blob/main/global.R">FIIS</a>.</p>
 </div>
 <div id="tests" class="section level1">
 <h1>Tests</h1>
-<p><code>tests/testthat/</code> holds unit tests for the target, selection and summary functions, and short
-simulations on a 4 x 4 landscape with every input supplied, so nothing is downloaded. The
+<p><code>tests/testthat/</code> holds unit tests for the patch selection, the default planning area, the
+spatial constraints and the summary plots, and short simulations on a 4 x 4 landscape. The tests
+of the Hanzlik target and of the cohorts cut are in timberSupply. One test runs the module without
+<code>thlb</code>, so it downloads the Managed Forests map; it is skipped offline. The
 <code>testthat-module</code> GitHub workflow runs them on every pull request, using the shared workflow in
 <a href="https://github.com/PredictiveEcology/actions">PredictiveEcology/actions</a>. To run them locally
 from the module directory, do what that workflow does:</p>

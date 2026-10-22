@@ -1,6 +1,6 @@
 ---
 title: "simpleHarvestPlanning Manual"
-date: "Last updated: 2026-10-21"
+date: "Last updated: 2026-10-22"
 output:
   bookdown::html_document2:
     toc: true
@@ -25,6 +25,11 @@ chooses which pixels to harvest and which species to cut in them, and records wh
 
 It **does not remove anything itself**. Pair it with *LandRCBM_partialDisturbance*, which reads
 `speciesHarvestMaps`, removes the flagged cohorts from `cohortData` and replants the pixels.
+Without it, the same stands stay old enough and are cut again every year.
+
+The Hanzlik target, the rotation age of each pixel and the list of cohorts cut come from the
+[timberSupply](https://github.com/PredictiveEcology/timberSupply) package (`hanzlikTarget()`,
+`rotationAgeMap()`, `cutCohorts()`), so they can also be used outside a simulation.
 
 What it decides:
 
@@ -72,6 +77,13 @@ harvestTarget <- list(
 )
 ```
 
+Without `default`, only the species listed are cut. This cuts only lodgepole pine:
+
+
+``` r
+harvestTarget <- list("1" = list(Pinu_con = 0.01))
+```
+
 If `harvestTarget` and `planningArea` are not supplied, the module uses one planning area with a
 target of 0.01.
 
@@ -117,6 +129,9 @@ plannedProtected[plannedPixels] <- 200
 spatialConstraints <- c(protected = protected, plannedProtected = plannedProtected)
 ```
 
+In BC, *harvestConstraintsBC* makes this object from parks, habitat, scenic areas and
+watersheds.
+
 Where layers overlap, no harvest wins, then the longest rotation. Pixels in no constraint use
 `rotationAge`.
 
@@ -161,9 +176,13 @@ it needs no setting of its own. Two things to know about that pairing:
 - `hanzlikStats`: with `hanzlik = TRUE`, one row per year, planning area and rotation age, with
   $V_m$, $I$, the AAC, the harvestable biomass and the target.
 
-## Summary plots
+## Plots
 
-When `.plots` is set, a `plotSummary` event at the end of the simulation writes four time series to
+`.plots` is `"png"` by default. Each harvest year, the `plot` event writes two maps to
+`figures/simpleHarvestPlanning/`: `currentHarvest_year_<year>` (that year's harvest, coloured
+by planning area) and `cumulativeHarvest_year_<year>`. Set `.plots = NA` to turn plotting off.
+
+At the end of the simulation, a `plotSummary` event at the end of the simulation writes four time series to
 `figures/simpleHarvestPlanning/`, in tonnes of aboveground biomass (B x pixel area):
 
 - `harvest_AAC_vs_cut`: the Hanzlik AAC and the biomass harvested, by planning area.
@@ -211,28 +230,36 @@ nothing.
 |spatialConstraints   |SpatRaster  |Optional. One layer per constraint (e.g. protected, plannedProtected), holding the rotation age that applies there, NA = no harvest, and 0 where it does not apply. Where layers overlap the longest rotation wins; elsewhere `rotationAge` applies. NA pixels are never harvested; with `hanzlik = TRUE`, each rotation age gets its own AAC, target and pixel selection. If not supplied, there are no constraints. |NA        |
 |timeSinceHarvest     |SpatRaster  |map of time since last harvest; new harvests start at 0                                                                                                                                                                                                                                                                                                                                                               |NA        |
 
-`rasterToMatch` is required. When missing, the others are created:
+`rasterToMatch` is required. The module runs on its own: when the others are missing it makes
+them, as below. In a full project they usually come from other modules.
 
-- `thlb` from the Managed Forests of Canada map (2017): long- and short-term tenure and private
-  forest (classes 11, 12, 50) are harvestable.
-- `planningArea` as one area over the THLB, or as equal splits when `harvestTarget` has several
-  areas.
-- `harvestTarget` as `list("1" = 0.01)`.
-- `timeSinceHarvest` as all `NA`.
+| Input | Made by this module when missing | Usually supplied by |
+|---|---|---|
+| `cohortData`, `pixelGroupMap` | One young stand-in cohort on every pixel, so nothing is cut | *Biomass_core* |
+| `thlb` | From the Managed Forests of Canada map (2017): long- and short-term tenure and private forest (classes 11, 12, 50), below 2000 m | *thlbBC* in BC |
+| `spatialConstraints` | None: `rotationAge` applies everywhere | *harvestConstraintsBC* in BC |
+| `planningArea` | The whole study area (the non-`NA` pixels of `rasterToMatch`). With several areas in `harvestTarget`, it is split into that many parts of equal size, in raster cell order, so they are horizontal bands | The project |
+| `harvestTarget` | `list("1" = 0.01)` | The project |
+| `timeSinceHarvest` | All `NA` | |
+| `sppColorVect` | None: the plots use default colours | The LandR biomass modules |
+
+Harvest is always limited to the `thlb`, whatever the planning areas cover.
 
 # Output objects
 
 
-|objectName           |objectClass |desc                                                                                                                                               |
-|:--------------------|:-----------|:--------------------------------------------------------------------------------------------------------------------------------------------------|
-|rstCurrentHarvest    |SpatRaster  |Binary raster representing with 1 representing harvested pixels and 0 non-harvested forest. NA values represent non-forest                         |
-|cumulativeHarvestMap |SpatRaster  |cumulative harvest in raster form                                                                                                                  |
-|harvestSummary       |data.table  |data.table with year and pixel index of harvested pixels                                                                                           |
-|harvestStats         |data.table  |data.table with storage for minCuts, totalCut, and target                                                                                          |
-|speciesHarvestMaps   |list        |List of binary SpatRasters representing harvested pixels per species. Each raster has 1 for harvested pixels and 0 for non-harvested pixels.       |
-|harvestPerformance   |list        |List with observed vs expected harvest summaries per year and per planning area                                                                    |
-|hanzlikStats         |data.table  |With `hanzlik = TRUE`, one row per year, planningArea and rotation age: Vm, I, AAC and Bharvestable (sum of B in g/m2 over pixels) and the target. |
-|thlb                 |SpatRaster  |Harvestable pixels mask                                                                                                                            |
+|objectName           |objectClass |desc                                                                                                                                                                                                              |
+|:--------------------|:-----------|:-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+|rstCurrentHarvest    |SpatRaster  |Binary raster representing with 1 representing harvested pixels and 0 non-harvested forest. NA values represent non-forest                                                                                        |
+|cumulativeHarvestMap |SpatRaster  |cumulative harvest in raster form                                                                                                                                                                                 |
+|harvestSummary       |data.table  |One row per year, pixel and cohort cut, with speciesCode, age, B and planningArea, at the time of selection. Only the cohorts cut, so sum(B) is the biomass harvested.                                            |
+|harvestStats         |data.table  |Per year, planningArea and species: pixels available, expected and cut, and the target used.                                                                                                                      |
+|speciesHarvestMaps   |list        |List of binary SpatRasters representing harvested pixels per species. Each raster has 1 for harvested pixels and 0 for non-harvested pixels.                                                                      |
+|harvestPerformance   |list        |List with observed vs expected harvest summaries per year and per planning area                                                                                                                                   |
+|hanzlikStats         |data.table  |With `hanzlik = TRUE`, one row per year, planningArea and rotation age: Vm, I, AAC and Bharvestable (sum of B in g/m2 over pixels) and the target.                                                                |
+|harvestTarget        |list        |With `hanzlik = TRUE`, replaced every year by the Hanzlik target of each planningArea, for the longest rotation age on the thlb that year; every rotation age's target is in `hanzlikStats`. Otherwise unchanged. |
+|thlb                 |SpatRaster  |Harvestable pixels mask                                                                                                                                                                                           |
+|timeSinceHarvest     |SpatRaster  |Years since each pixel was last harvested; NA = never.                                                                                                                                                            |
 
 # Usage
 
@@ -257,10 +284,17 @@ sim <- SpaDES.core::simInitAndSpades2(out)
 sim$harvestSummary[, .(pixels = data.table::uniqueN(pixelIndex), B = sum(B)), by = year]
 ```
 
+In BC, add *thlbBC* for the harvestable land base and *harvestConstraintsBC* for the
+`spatialConstraints`, before *simpleHarvestPlanning* in `modules`. A complete BC project, with
+yield tables, the land base, constraints, growth and harvest, is
+[FIIS](https://github.com/eliotmcintire/FIIS/blob/main/global.R).
+
 # Tests
 
-`tests/testthat/` holds unit tests for the target, selection and summary functions, and short
-simulations on a 4 x 4 landscape with every input supplied, so nothing is downloaded. The
+`tests/testthat/` holds unit tests for the patch selection, the default planning area, the
+spatial constraints and the summary plots, and short simulations on a 4 x 4 landscape. The tests
+of the Hanzlik target and of the cohorts cut are in timberSupply. One test runs the module without
+`thlb`, so it downloads the Managed Forests map; it is skipped offline. The
 `testthat-module` GitHub workflow runs them on every pull request, using the shared workflow in
 [PredictiveEcology/actions](https://github.com/PredictiveEcology/actions). To run them locally
 from the module directory, do what that workflow does:
