@@ -2,7 +2,7 @@ defineModule(sim, list(
   name = "simpleHarvestPlanning",
   description = paste("This is a very simplistic harvest module designed to interface with the LandR suite of modules",
                       "It will create a raster of harvested patches, but will not simulate actual harvest.",
-                      "Should be paired with LandR_reforestation"),
+                      "Should be paired with LandRCBM_partialDisturbance, which removes the cohorts it flags."),
   keywords = c("harvest", "LandR", "rstCurrentHarvest"),
   authors = c(
     person(c("Ian"), "Eddy", email = "ian.eddy@canada.ca", role = c("aut", "cre")),
@@ -13,7 +13,7 @@ defineModule(sim, list(
   timeframe = as.POSIXlt(c(NA, NA)),
   timeunit = "year",
   citation = list("citation.bib"),
-  documentation = list("README.txt", "simpleHarvestPlanning.Rmd"),
+  documentation = list("README.md", "simpleHarvestPlanning.Rmd"),
   reqdPkgs = list("data.table", "PredictiveEcology/LandR@development (>= 1.1.5.9055)", 'sf', 'magrittr', 'fasterize', "terra",
                   "reproducible", "SpaDES.tools", "ggplot2",
                   "PredictiveEcology/timberSupply@development"),
@@ -96,9 +96,12 @@ defineModule(sim, list(
     createsOutput(objectName = "cumulativeHarvestMap", objectClass = "SpatRaster",
                   desc = "cumulative harvest in raster form"),
     createsOutput(objectName = "harvestSummary", objectClass = "data.table",
-                  desc = "data.table with year and pixel index of harvested pixels"),
+                  desc = paste("One row per year, pixel and cohort cut, with speciesCode, age, B and",
+                               "planningArea, at the time of selection. Only the cohorts cut, so sum(B) is",
+                               "the biomass harvested.")),
     createsOutput(objectName = "harvestStats", objectClass = "data.table",
-                  desc = "data.table with storage for minCuts, totalCut, and target"),
+                  desc = paste("Per year, planningArea and species: pixels available, expected and cut,",
+                               "and the target used.")),
     createsOutput(objectName = "speciesHarvestMaps", objectClass = "list",
                   desc = "List of binary SpatRasters representing harvested pixels per species.
                           Each raster has 1 for harvested pixels and 0 for non-harvested pixels."),
@@ -108,7 +111,9 @@ defineModule(sim, list(
                   desc = paste("With `hanzlik = TRUE`, one row per year, planningArea and rotation age:",
                                "Vm, I, AAC and Bharvestable (sum of B in g/m2 over pixels) and the target.")),
     createsOutput(objectName = "thlb", objectClass = "SpatRaster",
-                  desc = "Harvestable pixels mask"))
+                  desc = "Harvestable pixels mask"),
+    createsOutput(objectName = "timeSinceHarvest", objectClass = "SpatRaster",
+                  desc = "Years since each pixel was last harvested; NA = never."))
   
 ))
 #---------------------------------------------------------------------------------------------------
