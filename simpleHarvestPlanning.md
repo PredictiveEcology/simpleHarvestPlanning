@@ -178,11 +178,12 @@ it needs no setting of its own. Two things to know about that pairing:
 
 ## Plots
 
-`.plots` is `"png"` by default. Each harvest year, the `plot` event writes two maps to
-`figures/simpleHarvestPlanning/`: `currentHarvest_year_<year>` (that year's harvest, coloured
-by planning area) and `cumulativeHarvest_year_<year>`. Set `.plots = NA` to turn plotting off.
+`.plots` is `"png"` by default. Every `.plotInterval` years (1 by default), the `plot` event writes
+two maps to `figures/simpleHarvestPlanning/`: `currentHarvest_year_<year>` (that year's harvest,
+coloured by planning area) and `cumulativeHarvest_year_<year>`. Set `.plots = NA` to turn plotting off.
 
-At the end of the simulation, a `plotSummary` event at the end of the simulation writes four time series to
+Every `summaryInterval` years (10 by default), and at the end of the simulation, the `plotSummary`
+event redraws four time series of the run so far (so they can be watched during a long run) to
 `figures/simpleHarvestPlanning/`, in tonnes of aboveground biomass (B x pixel area):
 
 - `harvest_AAC_vs_cut`: the Hanzlik AAC and the biomass harvested, by planning area.
@@ -200,10 +201,11 @@ nothing.
 |:---------------------|:----------|:-------|:----|:---|:-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:--------|
 |.plotInitialTime      |numeric    |0       |NA   |NA  |This is here for backwards compatibility. Please use `.plots`                                                                                                                                                                                                                 |TRUE     |
 |.plots                |character  |png     |NA   |NA  |This describes the type of 'plotting' to do. See `?Plots` for possible types. To omit, set to NA                                                                                                                                                                              |TRUE     |
-|.plotInterval         |numeric    |NA      |NA   |NA  |This describes the simulation time interval between plot events                                                                                                                                                                                                               |TRUE     |
+|.plotInterval         |numeric    |1       |NA   |NA  |Years between harvest maps (currentHarvest, cumulativeHarvest). NA: one map, at .plotInitialTime                                                                                                                                                                              |TRUE     |
 |.saveInitialTime      |numeric    |NA      |NA   |NA  |This describes the simulation time at which the first save event should occur                                                                                                                                                                                                 |TRUE     |
 |.saveInterval         |numeric    |NA      |NA   |NA  |This describes the simulation time interval between save events                                                                                                                                                                                                               |TRUE     |
 |.useCache             |logical    |FALSE   |NA   |NA  |Should this entire module be run with caching activated? This is generally intended for data-type modules, where stochasticity and time are not relevant                                                                                                                      |TRUE     |
+|summaryInterval       |numeric    |10      |NA   |NA  |Years between the summary time-series plots (AAC vs cut etc.); they are also drawn at the end. NA: only at the end                                                                                                                                                            |TRUE     |
 |startTime             |numeric    |0       |NA   |NA  |Simulation time at which to initiate harvesting                                                                                                                                                                                                                               |TRUE     |
 |minAgesToHarvest      |numeric    |50      |1    |NA  |minimum ages of trees to harvest                                                                                                                                                                                                                                              |TRUE     |
 |maxPatchSizetoHarvest |numeric    |10      |1    |NA  |maximum size for harvestable patches, in pixels                                                                                                                                                                                                                               |TRUE     |
