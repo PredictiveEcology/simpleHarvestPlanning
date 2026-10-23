@@ -1,6 +1,6 @@
 ---
 title: "simpleHarvestPlanning Manual"
-date: "Last updated: 2026-10-22"
+date: "Last updated: 2026-10-23"
 output:
   bookdown::html_document2:
     toc: true
