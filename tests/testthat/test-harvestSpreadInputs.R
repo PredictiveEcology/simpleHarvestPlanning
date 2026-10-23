@@ -50,3 +50,18 @@ test_that("a target for a planningArea that does not exist is an error", {
       target = list("1" = 0.1), year = 2020L, verbose = 0),
     "Missing harvest targets")
 })
+
+test_that("a species with one available pixel cuts that pixel, not a random cell", {
+  ## sample(x, 1) with a single x samples from 1:x, so pixel 8 became any of 1-8
+  L <- toyLandscape()
+  L$thlb[1:7] <- NA  # only pixel 8 is old enough and on the thlb
+  cuts <- lapply(1:20, function(s) {
+    set.seed(s)
+    out <- harvestSpreadInputs(
+      pixelGroupMap = L$pixelGroupMap, cohortData = L$cohortData, thlb = L$thlb,
+      planningArea = L$planningArea, spreadProb = 1, maxCutSize = 2, minAgesToHarvest = 50,
+      target = list("1" = 1), year = 2020L, verbose = 0)
+    which(terra::values(out$rstCurrentHarvest)[, 1] == 1)
+  })
+  expect_identical(unique(unlist(cuts)), 8L)
+})

@@ -1,5 +1,6 @@
 # simpleHarvestPlanning (development version)
 
+* Harvest no longer lands outside the timber harvesting land base. When a species had only one pixel old enough to cut in a planning area, the cut started at a random cell instead of that pixel, often outside the land base or the study area. In a 100-year TSA02 run this misplaced 424 cuts, 306 of them off the land base. The pixel that was eligible was never cut.
 * The Hanzlik target, rotation-age map and cut-cohort functions now come from the timberSupply package instead of copies inside the module. Results are unchanged.
 * A harvest target can name only some species; the others are skipped instead of stopping the run.
 * When no `planningArea` is supplied, the module makes one from `rasterToMatch` (the whole study area, split into as many areas as `harvestTarget` has). It used `thlb`, which does not exist yet when thlbBC makes it, so such a run stopped during setup.
