@@ -166,7 +166,9 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
               filename = paste0("currentHarvest_year_", time(sim)),
               title    = paste0("Annual Harvest: year ", time(sim))
         )
-        Plots(sim$cumulativeHarvestMap,
+        cumulative <- sim$cumulativeHarvestMap
+        cumulative[cumulative == 0] <- NA  # never harvested: transparent
+        Plots(cumulative,
               fn       = plot_raster,
               type     = P(sim)$.plots,
               filename = paste0("cumulativeHarvest_year_", time(sim)),
