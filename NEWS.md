@@ -1,5 +1,6 @@
 # simpleHarvestPlanning (development version)
 
+* The summary plots (AAC vs cut, biomass by species, area, age) are now redrawn every `summaryInterval` years (new parameter, 10 by default) as well as at the end, so they can be watched during a long run. `summaryInterval = NA` draws them only at the end, as before. The harvest maps now follow `.plotInterval`, which defaults to 1 (every year, as before); they were drawn every year whatever `.plotInterval` was.
 * Harvest no longer lands outside the timber harvesting land base. When a species had only one pixel old enough to cut in a planning area, the cut started at a random cell instead of that pixel, often outside the land base or the study area. In a 100-year TSA02 run this misplaced 424 cuts, 306 of them off the land base. The pixel that was eligible was never cut.
 * The Hanzlik target, rotation-age map and cut-cohort functions now come from the timberSupply package instead of copies inside the module. Results are unchanged.
 * A harvest target can name only some species; the others are skipped instead of stopping the run.

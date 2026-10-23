@@ -23,14 +23,16 @@ defineModule(sim, list(
                     "This is here for backwards compatibility. Please use `.plots`"),
     defineParameter(".plots", "character", "png", NA, NA,
                     "This describes the type of 'plotting' to do. See `?Plots` for possible types. To omit, set to NA"),
-    defineParameter(".plotInterval", "numeric", NA, NA, NA,
-                    "This describes the simulation time interval between plot events"),
+    defineParameter(".plotInterval", "numeric", 1, NA, NA,
+                    "Years between harvest maps (currentHarvest, cumulativeHarvest). NA: one map, at .plotInitialTime"),
     defineParameter(".saveInitialTime", "numeric", NA, NA, NA,
                     "This describes the simulation time at which the first save event should occur"),
     defineParameter(".saveInterval", "numeric", NA, NA, NA,
                     "This describes the simulation time interval between save events"),
     defineParameter(".useCache", "logical", FALSE, NA, NA, "Should this entire module be run with caching activated?
                     This is generally intended for data-type modules, where stochasticity and time are not relevant"),
+    defineParameter("summaryInterval", "numeric", 10, NA, NA,
+                    "Years between the summary time-series plots (AAC vs cut etc.); they are also drawn at the end. NA: only at the end"),
     # Harvest controls
     defineParameter("startTime", "numeric", start(sim), NA, NA,
                     desc = "Simulation time at which to initiate harvesting"),
@@ -129,10 +131,13 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
       
       # schedule future event(s)
       sim <- scheduleEvent(sim, P(sim)$startTime, "simpleHarvestPlanning", "harvest")
-      sim <- scheduleEvent(sim, P(sim)$.plotInitialTime, "simpleHarvestPlanning", "plot")
-      if (anyPlotting(P(sim)$.plots))
+      sim <- scheduleEvent(sim, P(sim)$.plotInitialTime, "simpleHarvestPlanning", "plot",
+                           eventPriority = .last())  # after that year's harvest
+      if (anyPlotting(P(sim)$.plots)) {
         sim <- scheduleEvent(sim, end(sim), "simpleHarvestPlanning", "plotSummary",
                              eventPriority = .last())
+        sim <- scheduleSummary(sim, P(sim)$.plotInitialTime + P(sim)$summaryInterval)
+      }
     },
 
     plotSummary = {
@@ -150,6 +155,7 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
         do.call(Plots, c(list(ts$area, fn = plotHarvestArea, filename = "harvest_area"), plotArgs))
       if (NROW(ts$age))
         do.call(Plots, c(list(ts$age, fn = plotHarvestAge, filename = "harvest_age"), plotArgs))
+      sim <- scheduleSummary(sim, time(sim) + P(sim)$summaryInterval)
     },
     
     plot = {
@@ -174,7 +180,8 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
         )
       }
       # Reschedule the next plot event
-      sim <- scheduleEvent(sim, time(sim) + P(sim)$.plotInterval, "simpleHarvestPlanning", "plot")
+      sim <- scheduleEvent(sim, time(sim) + P(sim)$.plotInterval, "simpleHarvestPlanning", "plot",
+                           eventPriority = .last())
     },
     
     harvest = {
@@ -288,8 +295,6 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
       sim$harvestSummary[, planningArea := planningArea_vals[pixelIndex]]
       # Schedule next harvest event
       sim <- scheduleEvent(sim, time(sim) + 1, "simpleHarvestPlanning", "harvest")
-      # Schedule plot for current harvest
-      sim <- scheduleEvent(sim, time(sim), "simpleHarvestPlanning", "plot")
       
     },
     
@@ -637,6 +642,13 @@ harvestSpreadInputs <- function(pixelGroupMap,
 }
 
 # One year's harvest from the separate harvests of each rotation age (disjoint pixels).
+# The next plotSummary before end(sim), which has its own
+scheduleSummary <- function(sim, nextTime) {
+  if (isTRUE(nextTime < end(sim)))
+    sim <- scheduleEvent(sim, nextTime, "simpleHarvestPlanning", "plotSummary", eventPriority = .last())
+  sim
+}
+
 combineHarvestSpread <- function(harvestSpread, template) {
   if (length(harvestSpread) == 1) return(harvestSpread[[1]])
   rst <- terra::rast(template)
