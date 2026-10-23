@@ -469,7 +469,8 @@ harvestSpreadInputs <- function(pixelGroupMap,
       feasibleMax <- min(maxHarvest, nAvailable)    # cannot exceed available pixels
       
       # Seed pixels for spread
-      initialCuts <- unique(sample(availablePixels, size = minCuts, replace = FALSE))
+      # sample.int: sample() of a single pixel index would sample from 1:index
+      initialCuts <- availablePixels[sample.int(nAvailable, size = minCuts)]
       
       # Remove too-young pixels
       initialCuts <- initialCuts[!initialCuts %in% tooYoungPixels]
