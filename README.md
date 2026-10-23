@@ -10,7 +10,9 @@ Plotting and saving parameters:
 
 -   `.plotInitialTime` - Defines when plotting begins, set to start of simulation by default.
 
--   `.plotInterval` - Defines plotting frequency.
+-   `.plotInterval` - Years between harvest maps; 1 (every year) by default.
+
+-   `summaryInterval` - Years between the summary time-series plots, which are also drawn at the end; 10 by default. NA draws them only at the end.
 
 -   `.saveInitialTime` - Defines when saving begins, set to start of simulation by default.
 

@@ -178,11 +178,12 @@ it needs no setting of its own. Two things to know about that pairing:
 
 ## Plots
 
-`.plots` is `"png"` by default. Each harvest year, the `plot` event writes two maps to
-`figures/simpleHarvestPlanning/`: `currentHarvest_year_<year>` (that year's harvest, coloured
-by planning area) and `cumulativeHarvest_year_<year>`. Set `.plots = NA` to turn plotting off.
+`.plots` is `"png"` by default. Every `.plotInterval` years (1 by default), the `plot` event writes
+two maps to `figures/simpleHarvestPlanning/`: `currentHarvest_year_<year>` (that year's harvest,
+coloured by planning area) and `cumulativeHarvest_year_<year>`. Set `.plots = NA` to turn plotting off.
 
-At the end of the simulation, a `plotSummary` event at the end of the simulation writes four time series to
+Every `summaryInterval` years (10 by default), and at the end of the simulation, the `plotSummary`
+event redraws four time series of the run so far (so they can be watched during a long run) to
 `figures/simpleHarvestPlanning/`, in tonnes of aboveground biomass (B x pixel area):
 
 - `harvest_AAC_vs_cut`: the Hanzlik AAC and the biomass harvested, by planning area.
