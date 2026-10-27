@@ -6,7 +6,7 @@ test_that("parameters are the expected names", {
     md$parameters$paramName,
     c(".plotInitialTime", ".plotInterval", ".plots", ".saveInitialTime", ".saveInterval",
       ".useCache", "harvestType", "hanzlik", "maxPatchSizetoHarvest", "minAgesToHarvest",
-      "rotationAge", "spreadProb", "startTime", "verbose")
+      "rotationAge", "spreadProb", "startTime", "summaryInterval", "verbose")
   )
 })
 

@@ -2,18 +2,18 @@ defineModule(sim, list(
   name = "simpleHarvestPlanning",
   description = paste("This is a very simplistic harvest module designed to interface with the LandR suite of modules",
                       "It will create a raster of harvested patches, but will not simulate actual harvest.",
-                      "Should be paired with LandR_reforestation"),
+                      "Should be paired with LandRCBM_partialDisturbance, which removes the cohorts it flags."),
   keywords = c("harvest", "LandR", "rstCurrentHarvest"),
   authors = c(
     person(c("Ian"), "Eddy", email = "ian.eddy@canada.ca", role = c("aut", "cre")),
     person("Parvin", "Kalantari", email = "parvin.kalantari@nrcan-rncan.gc.ca", role = c("aut","ctb"))
   ),
   childModules = character(0),
-  version = list(SpaDES.core = "0.2.5.9008", simpleHarvestPlanning = "0.1.0.9002"),
+  version = list(SpaDES.core = "0.2.5.9008", simpleHarvestPlanning = "0.1.0.9008"),
   timeframe = as.POSIXlt(c(NA, NA)),
   timeunit = "year",
   citation = list("citation.bib"),
-  documentation = list("README.txt", "simpleHarvestPlanning.Rmd"),
+  documentation = list("README.md", "simpleHarvestPlanning.Rmd"),
   reqdPkgs = list("data.table", "PredictiveEcology/LandR@development (>= 1.1.5.9055)", 'sf', 'magrittr', 'fasterize', "terra",
                   "reproducible", "SpaDES.tools", "ggplot2", "tidyterra", "viridis",
                   "PredictiveEcology/timberSupply@development"),
@@ -23,14 +23,16 @@ defineModule(sim, list(
                     "This is here for backwards compatibility. Please use `.plots`"),
     defineParameter(".plots", "character", "png", NA, NA,
                     "This describes the type of 'plotting' to do. See `?Plots` for possible types. To omit, set to NA"),
-    defineParameter(".plotInterval", "numeric", NA, NA, NA,
-                    "This describes the simulation time interval between plot events"),
+    defineParameter(".plotInterval", "numeric", 1, NA, NA,
+                    "Years between harvest maps (currentHarvest, cumulativeHarvest). NA: one map, at .plotInitialTime"),
     defineParameter(".saveInitialTime", "numeric", NA, NA, NA,
                     "This describes the simulation time at which the first save event should occur"),
     defineParameter(".saveInterval", "numeric", NA, NA, NA,
                     "This describes the simulation time interval between save events"),
     defineParameter(".useCache", "logical", FALSE, NA, NA, "Should this entire module be run with caching activated?
                     This is generally intended for data-type modules, where stochasticity and time are not relevant"),
+    defineParameter("summaryInterval", "numeric", 10, NA, NA,
+                    "Years between the summary time-series plots (AAC vs cut etc.); they are also drawn at the end. NA: only at the end"),
     # Harvest controls
     defineParameter("startTime", "numeric", start(sim), NA, NA,
                     desc = "Simulation time at which to initiate harvesting"),
@@ -96,9 +98,12 @@ defineModule(sim, list(
     createsOutput(objectName = "cumulativeHarvestMap", objectClass = "SpatRaster",
                   desc = "cumulative harvest in raster form"),
     createsOutput(objectName = "harvestSummary", objectClass = "data.table",
-                  desc = "data.table with year and pixel index of harvested pixels"),
+                  desc = paste("One row per year, pixel and cohort cut, with speciesCode, age, B and",
+                               "planningArea, at the time of selection. Only the cohorts cut, so sum(B) is",
+                               "the biomass harvested.")),
     createsOutput(objectName = "harvestStats", objectClass = "data.table",
-                  desc = "data.table with storage for minCuts, totalCut, and target"),
+                  desc = paste("Per year, planningArea and species: pixels available, expected and cut,",
+                               "and the target used.")),
     createsOutput(objectName = "speciesHarvestMaps", objectClass = "list",
                   desc = "List of binary SpatRasters representing harvested pixels per species.
                           Each raster has 1 for harvested pixels and 0 for non-harvested pixels."),
@@ -107,8 +112,14 @@ defineModule(sim, list(
     createsOutput(objectName = "hanzlikStats", objectClass = "data.table",
                   desc = paste("With `hanzlik = TRUE`, one row per year, planningArea and rotation age:",
                                "Vm, I, AAC and Bharvestable (sum of B in g/m2 over pixels) and the target.")),
+    createsOutput(objectName = "harvestTarget", objectClass = "list",
+                  desc = paste("With `hanzlik = TRUE`, replaced every year by the Hanzlik target of each",
+                               "planningArea, for the longest rotation age on the thlb that year; every",
+                               "rotation age's target is in `hanzlikStats`. Otherwise unchanged.")),
     createsOutput(objectName = "thlb", objectClass = "SpatRaster",
-                  desc = "Harvestable pixels mask"))
+                  desc = "Harvestable pixels mask"),
+    createsOutput(objectName = "timeSinceHarvest", objectClass = "SpatRaster",
+                  desc = "Years since each pixel was last harvested; NA = never."))
   
 ))
 #---------------------------------------------------------------------------------------------------
@@ -120,10 +131,13 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
       
       # schedule future event(s)
       sim <- scheduleEvent(sim, P(sim)$startTime, "simpleHarvestPlanning", "harvest")
-      sim <- scheduleEvent(sim, P(sim)$.plotInitialTime, "simpleHarvestPlanning", "plot")
-      if (anyPlotting(P(sim)$.plots))
+      sim <- scheduleEvent(sim, P(sim)$.plotInitialTime, "simpleHarvestPlanning", "plot",
+                           eventPriority = .last())  # after that year's harvest
+      if (anyPlotting(P(sim)$.plots)) {
         sim <- scheduleEvent(sim, end(sim), "simpleHarvestPlanning", "plotSummary",
                              eventPriority = .last())
+        sim <- scheduleSummary(sim, P(sim)$.plotInitialTime + P(sim)$summaryInterval)
+      }
     },
 
     plotSummary = {
@@ -141,6 +155,7 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
         do.call(Plots, c(list(ts$area, fn = plotHarvestArea, filename = "harvest_area"), plotArgs))
       if (NROW(ts$age))
         do.call(Plots, c(list(ts$age, fn = plotHarvestAge, filename = "harvest_age"), plotArgs))
+      sim <- scheduleSummary(sim, time(sim) + P(sim)$summaryInterval)
     },
     
     plot = {
@@ -157,7 +172,9 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
               filename = paste0("currentHarvest_year_", time(sim)),
               title    = paste0("Annual Harvest: year ", time(sim))
         )
-        Plots(sim$cumulativeHarvestMap,
+        cumulative <- sim$cumulativeHarvestMap
+        cumulative[cumulative == 0] <- NA  # never harvested: transparent
+        Plots(cumulative,
               fn       = plot_raster,
               type     = P(sim)$.plots,
               filename = paste0("cumulativeHarvest_year_", time(sim)),
@@ -165,7 +182,8 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
         )
       }
       # Reschedule the next plot event
-      sim <- scheduleEvent(sim, time(sim) + P(sim)$.plotInterval, "simpleHarvestPlanning", "plot")
+      sim <- scheduleEvent(sim, time(sim) + P(sim)$.plotInterval, "simpleHarvestPlanning", "plot",
+                           eventPriority = .last())
     },
     
     harvest = {
@@ -279,8 +297,6 @@ doEvent.simpleHarvestPlanning = function(sim, eventTime, eventType) {
       sim$harvestSummary[, planningArea := planningArea_vals[pixelIndex]]
       # Schedule next harvest event
       sim <- scheduleEvent(sim, time(sim) + 1, "simpleHarvestPlanning", "harvest")
-      # Schedule plot for current harvest
-      sim <- scheduleEvent(sim, time(sim), "simpleHarvestPlanning", "plot")
       
     },
     
@@ -460,7 +476,8 @@ harvestSpreadInputs <- function(pixelGroupMap,
       feasibleMax <- min(maxHarvest, nAvailable)    # cannot exceed available pixels
       
       # Seed pixels for spread
-      initialCuts <- unique(sample(availablePixels, size = minCuts, replace = FALSE))
+      # sample.int: sample() of a single pixel index would sample from 1:index
+      initialCuts <- availablePixels[sample.int(nAvailable, size = minCuts)]
       
       # Remove too-young pixels
       initialCuts <- initialCuts[!initialCuts %in% tooYoungPixels]
@@ -627,6 +644,13 @@ harvestSpreadInputs <- function(pixelGroupMap,
 }
 
 # One year's harvest from the separate harvests of each rotation age (disjoint pixels).
+# The next plotSummary before end(sim), which has its own
+scheduleSummary <- function(sim, nextTime) {
+  if (isTRUE(nextTime < end(sim)))
+    sim <- scheduleEvent(sim, nextTime, "simpleHarvestPlanning", "plotSummary", eventPriority = .last())
+  sim
+}
+
 combineHarvestSpread <- function(harvestSpread, template) {
   if (length(harvestSpread) == 1) return(harvestSpread[[1]])
   rst <- terra::rast(template)
@@ -738,15 +762,15 @@ defaultPlanningArea <- function(rasterToMatch, nAreas) {
   if (!suppliedElsewhere("cohortData", sim)) {
     sim$cohortData <- data.table::data.table(
       pixelGroup = 1L,
+      speciesCode = factor("dummySpecies"),
       age = 10L,
-      species = "dummySpecies",
-      biomass = 100
+      B = 100L
     )
   }
   
   # pixelGroupMap dummy from rasterToMatch
   if (!suppliedElsewhere("pixelGroupMap", sim)) {
-    sim$pixelGroupMap <- terra::rast(sim$rasterToMatch)
+    sim$pixelGroupMap <- sim$rasterToMatch
     vals <- terra::values(sim$pixelGroupMap)
     vals[!is.na(vals)] <- 1L
     terra::values(sim$pixelGroupMap) <- vals
@@ -775,7 +799,7 @@ defaultPlanningArea <- function(rasterToMatch, nAreas) {
                                 fun = "terra::rast",
                                 to = sim$rasterToMatch,
                                 method = "near",
-                                destinationPath = "GIS",
+                                destinationPath = dPath,
                                 targetFile = "Canada_MFv2017.tif")
     
     # Raster to match
@@ -785,11 +809,11 @@ defaultPlanningArea <- function(rasterToMatch, nAreas) {
     
     rtm[!is.na(rtm)] <- 1
     
-    # Mask by elevation
-    thlb <- terra::mask(dem < 2000 , rtm)
-    
     # Keep only classes 11, 12, 50
     thlb <- terra::mask(x = rtm, mask = ManagedForest, maskvalues = c(11,12,50), inverse = TRUE)
+
+    # and below 2000 m
+    thlb[dem >= 2000] <- NA
     
     sim$thlb <- thlb
   }

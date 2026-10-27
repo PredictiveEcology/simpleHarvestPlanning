@@ -1,9 +1,12 @@
 # simpleHarvestPlanning (development version)
 
 * `reqdPkgs` now lists tidyterra and viridis, used by `plot_harvestMap()`; a new test checks that every package the module uses is listed.
+* The summary plots (AAC vs cut, biomass by species, area, age) are now redrawn every `summaryInterval` years (new parameter, 10 by default) as well as at the end, so they can be watched during a long run. `summaryInterval = NA` draws them only at the end, as before. The harvest maps now follow `.plotInterval`, which defaults to 1 (every year, as before); they were drawn every year whatever `.plotInterval` was.
+* Harvest no longer lands outside the timber harvesting land base. When a species had only one pixel old enough to cut in a planning area, the cut started at a random cell instead of that pixel, often outside the land base or the study area. In a 100-year TSA02 run this misplaced 424 cuts, 306 of them off the land base. The pixel that was eligible was never cut.
 * The Hanzlik target, rotation-age map and cut-cohort functions now come from the timberSupply package instead of copies inside the module. Results are unchanged.
 * A harvest target can name only some species; the others are skipped instead of stopping the run.
 * When no `planningArea` is supplied, the module makes one from `rasterToMatch` (the whole study area, split into as many areas as `harvestTarget` has). It used `thlb`, which does not exist yet when thlbBC makes it, so such a run stopped during setup.
+* When no `thlb` is supplied, the one the module makes now leaves out land at 2000 m or higher, as intended, so it can be smaller than before. Its map is saved in the inputs folder, not a `GIS` folder in the working directory. The module also runs with only `rasterToMatch` and `thlb` supplied; the stand-ins for `cohortData` and `pixelGroupMap` stopped the run.
 
 # simpleHarvestPlanning 0.1.0
 

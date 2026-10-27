@@ -62,3 +62,27 @@ test_that("plotSummary writes the four figures when plotting is on", {
   expect_setequal(pngs, paste0(c("harvest_AAC_vs_cut", "harvest_biomass_by_species", "harvest_area",
                                  "harvest_age"), ".png"))
 })
+
+test_that("maps are drawn every .plotInterval years and summaries every summaryInterval years", {
+  L <- toyLandscape()
+  set.seed(2)
+  runPlots <- function(...) {
+    sim <- SpaDES.core::simInit(
+      times = list(start = 2020, end = 2025),
+      modules = moduleName,
+      paths = testPaths,
+      params = setNames(list(list(hanzlik = TRUE, harvestType = "clearcut", maxPatchSizetoHarvest = 2,
+                                  .plots = "png", ...)), moduleName),
+      objects = c(L[c("rasterToMatch", "pixelGroupMap", "cohortData", "thlb", "planningArea")],
+                  list(harvestTarget = list("1" = 0.1)))
+    )
+    done <- SpaDES.core::completed(SpaDES.core::spades(sim, debug = FALSE))
+    split(as.numeric(done$eventTime), done$eventType)
+  }
+  ev <- runPlots(summaryInterval = 2)
+  expect_identical(ev$plot, as.numeric(2020:2025))         # yearly, once each, by default
+  expect_identical(ev$plotSummary, c(2022, 2024, 2025))    # every 2 years, and at the end
+  ev <- runPlots(.plotInterval = 2, summaryInterval = NA)
+  expect_identical(ev$plot, c(2020, 2022, 2024))
+  expect_identical(ev$plotSummary, 2025)                   # only at the end
+})
