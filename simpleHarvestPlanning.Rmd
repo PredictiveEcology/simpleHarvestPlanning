@@ -21,7 +21,7 @@ knitr::opts_chunk$set(echo = TRUE, eval = FALSE, warning = FALSE, message = FALS
 
 **Authors:** Ian Eddy, Parvin Kalantari. Module and documentation are work in progress.
 
-# Overview
+## Overview {#shp-overview}
 
 *simpleHarvestPlanning* is a simple, spatially explicit harvest planner for LandR. Each year it
 chooses which pixels to harvest and which species to cut in them, and records what that removes.
@@ -37,19 +37,38 @@ The Hanzlik target, the rotation age of each pixel and the list of cohorts cut c
 What it decides:
 
 - **How much** to cut in each planning area: a fixed share per year, or Hanzlik's annual
-  allowable cut (see [Harvest targets](#targets)), with other rotation ages, or none, where
-  `spatialConstraints` apply (see [Spatial constraints](#constraints)).
+  allowable cut (see [Harvest targets](#shp-targets)), with other rotation ages, or none, where
+  `spatialConstraints` apply (see [Spatial constraints](#shp-constraints)).
 - **Where** to cut: stands old enough, on the timber harvesting land base (THLB), grouped into
-  patches (see [How a harvest year works](#selection)).
+  patches (see [How a harvest year works](#shp-selection)).
 - **What** to cut in a harvested pixel: the dominant species only, or a clearcut of every species
-  (see [Harvest type](#harvest-type)).
+  (see [Harvest type](#shp-harvest-type)).
 
-# How a harvest year works {#selection}
+### Links to other modules {#shp-links-modules}
+
+- [*LandRCBM_partialDisturbance*](https://github.com/camillegiuliano/LandRCBM_partialDisturbance)
+  removes the cohorts flagged in `speciesHarvestMaps` from `cohortData` and replants the pixels
+  (see [Harvest type](#shp-harvest-type)).
+- [*thlbBC*](https://github.com/PredictiveEcology/thlbBC) makes `thlb`, the timber harvesting
+  land base, for a study area in British Columbia: from BC's published THLB where there is one,
+  and from the LandR yield curves elsewhere.
+- [*harvestConstraintsBC*](https://github.com/PredictiveEcology/harvestConstraintsBC) makes
+  `spatialConstraints` for a study area in British Columbia, from parks, old-growth management
+  areas, wildlife habitat, ungulate winter range, visual quality and community watersheds (see
+  [Spatial constraints](#shp-constraints)).
+- [timberSupply](https://github.com/PredictiveEcology/timberSupply) is the R package these three
+  modules call: the Hanzlik target, rotation ages and cohorts cut for *simpleHarvestPlanning*,
+  and the THLB and constraints for *thlbBC* and *harvestConstraintsBC*.
+- *Biomass_core* supplies `cohortData` and `pixelGroupMap`. *thlbBC* and *harvestConstraintsBC*
+  need the yield curves from
+  [*Biomass_yieldTables*](https://github.com/PredictiveEcology/Biomass_yieldTables).
+
+## How a harvest year works {#shp-selection}
 
 The `harvest` event runs every year from `startTime`.
 
 1. If `hanzlik = TRUE`, the target for each planning area is recalculated from the current
-   landscape (see [Harvest targets](#targets)). Otherwise the `harvestTarget` input is used as given.
+   landscape (see [Harvest targets](#shp-targets)). Otherwise the `harvestTarget` input is used as given.
 2. Each pixel gets a stand age, the biomass-weighted mean age of its cohorts, and a dominant
    species, the one with the most biomass. A pixel is eligible if it is on the THLB and its stand
    age is at least `minAgesToHarvest`.
@@ -57,14 +76,14 @@ The `harvest` event runs every year from `startTime`.
    the module cuts `ceiling(target x eligible pixels)`. It does this by seeding patches and growing
    them with `SpaDES.tools::spread2()`, up to `maxPatchSizetoHarvest` pixels each, with `spreadProb`
    controlling how close patches get to that size.
-4. The harvest is written out (see [Outputs](#outputs)).
+4. The harvest is written out (see [Outputs](#shp-outputs)).
 
-# Harvest targets {#targets}
+## Harvest targets {#shp-targets}
 
 A target is the share of eligible pixels to cut each year in a planning area. It can also be set
 per species.
 
-## Fixed targets
+### Fixed targets {#shp-fixed-targets}
 
 With `hanzlik = FALSE` (the default), `harvestTarget` is used as given. It is a list named by
 planning area. Each element is either one number or a list of numbers by species, with
@@ -88,7 +107,7 @@ harvestTarget <- list("1" = list(Pinu_con = 0.01))
 If `harvestTarget` and `planningArea` are not supplied, the module uses one planning area with a
 target of 0.01.
 
-## Hanzlik's annual allowable cut
+### Hanzlik's annual allowable cut {#shp-hanzlik}
 
 With `hanzlik = TRUE`, each year and for each planning area the module computes Hanzlik's annual
 allowable cut (AAC) from the current cohorts on the THLB:
@@ -113,7 +132,7 @@ every year.
 Setting `rotationAge` separately matters. Boreal rotations are usually 80--120 years, much longer
 than the default minimum harvest age of 50. Using 50 for $R$ makes $V_m / R$ large.
 
-## Spatial constraints {#constraints}
+### Spatial constraints {#shp-constraints}
 
 `spatialConstraints` (optional) sets other rotation ages in parts of the landscape, e.g. protected
 areas or planned protected areas. It is a `SpatRaster` with one layer per constraint. Each layer
@@ -142,7 +161,7 @@ Where layers overlap, no harvest wins, then the longest rotation. Pixels in no c
 
 `harvestStats` and `harvestPerformance` then have one set of rows per rotation age.
 
-# Harvest type {#harvest-type}
+## Harvest type {#shp-harvest-type}
 
 `harvestType` sets what is cut in a harvested pixel. In both cases only cohorts aged
 `minAgesToHarvest` or more are cut.
@@ -160,10 +179,10 @@ it needs no setting of its own. Two things to know about that pairing:
 - It runs before the harvest event in a year, so cohorts flagged in year *t* are removed in year
   *t + 1*.
 
-# Outputs {#outputs}
+## Outputs {#shp-outputs}
 
 - `rstCurrentHarvest`: this year's harvest, 1 = harvested, 0 = not, `NA` = non-forest.
-- `speciesHarvestMaps`: the species to cut in each harvested pixel (see [Harvest type](#harvest-type)).
+- `speciesHarvestMaps`: the species to cut in each harvested pixel (see [Harvest type](#shp-harvest-type)).
 - `harvestSummary`: one row per year, pixel and cohort that is cut, with `speciesCode`, `age`,
   `B` and `planningArea`. Only the cohorts that are cut are listed, not every cohort in a harvested
   pixel, so `sum(B)` is the harvested biomass. Values are at the time of selection, one year before
@@ -176,7 +195,7 @@ it needs no setting of its own. Two things to know about that pairing:
 - `hanzlikStats`: with `hanzlik = TRUE`, one row per year, planning area and rotation age, with
   $V_m$, $I$, the AAC, the harvestable biomass and the target.
 
-## Plots
+### Plots {#shp-plots}
 
 `.plots` is `"png"` by default. Every `.plotInterval` years (1 by default), the `plot` event writes
 two maps to `figures/simpleHarvestPlanning/`: `currentHarvest_year_<year>` (that year's harvest,
@@ -194,15 +213,15 @@ event redraws four time series of the run so far (so they can be watched during 
 If nothing can be cut in a year (a target of 0, or nothing old enough), the year runs and records
 nothing.
 
-# Parameters
+## Parameters {#shp-params-list}
 
-```{r moduleParams, echo = FALSE, eval = TRUE, results = "asis"}
+```{r moduleParams-simpleHarvestPlanning, echo = FALSE, eval = TRUE, results = "asis"}
 knitr::kable(SpaDES.core::moduleParams("simpleHarvestPlanning", ".."))
 ```
 
-# Inputs
+## Inputs {#shp-inputs-list}
 
-```{r moduleInputs, echo = FALSE, eval = TRUE, results = "asis"}
+```{r moduleInputs-simpleHarvestPlanning, echo = FALSE, eval = TRUE, results = "asis"}
 knitr::kable(SpaDES.core::moduleInputs("simpleHarvestPlanning", ".."))
 ```
 
@@ -221,17 +240,17 @@ them, as below. In a full project they usually come from other modules.
 
 Harvest is always limited to the `thlb`, whatever the planning areas cover.
 
-# Output objects
+## Output objects {#shp-outputs-list}
 
-```{r moduleOutputs, echo = FALSE, eval = TRUE, results = "asis"}
+```{r moduleOutputs-simpleHarvestPlanning, echo = FALSE, eval = TRUE, results = "asis"}
 knitr::kable(SpaDES.core::moduleOutputs("simpleHarvestPlanning", ".."))
 ```
 
-# Usage
+## Usage {#shp-example}
 
 A clearcut with a Hanzlik cut and a 100-year rotation, alongside the LandR biomass modules:
 
-```{r usage}
+```{r usage-simpleHarvestPlanning}
 out <- SpaDES.project::setupProject(
   modules = c("PredictiveEcology/Biomass_speciesData@development",
               "PredictiveEcology/Biomass_borealDataPrep@development",
@@ -254,7 +273,7 @@ In BC, add *thlbBC* for the harvestable land base and *harvestConstraintsBC* for
 yield tables, the land base, constraints, growth and harvest, is
 [FIIS](https://github.com/eliotmcintire/FIIS/blob/main/global.R).
 
-# Tests
+## Tests {#shp-tests}
 
 `tests/testthat/` holds unit tests for the patch selection, the default planning area, the
 spatial constraints and the summary plots, and short simulations on a 4 x 4 landscape. The tests
@@ -264,7 +283,7 @@ of the Hanzlik target and of the cohorts cut are in timberSupply. One test runs 
 [PredictiveEcology/actions](https://github.com/PredictiveEcology/actions). To run them locally
 from the module directory, do what that workflow does:
 
-```{r run-tests}
+```{r run-tests-simpleHarvestPlanning}
 pkg <- SpaDES.core::convertToPackage("simpleHarvestPlanning", path = "..",
                                      buildDocuments = TRUE,
                                      destinationPath = tempfile("testthat-module"))
